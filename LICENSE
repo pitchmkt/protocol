@@ -1,0 +1,53 @@
+Business Source License
+
+Licensor: PitchMkt
+
+---
+
+**Definitions**
+
+**"Licensed Work"** means the PitchMkt Protocol, (c) 2026 PitchMkt.
+
+**"Derivative"** means any work that modifies, incorporates, is based upon, or would otherwise be considered a derivative work of the Licensed Work, including under applicable copyright law.
+
+**"Production Environment"** means any environment in which users interact with the Licensed Work using live, real, or economically meaningful digital assets.
+
+**"Test Environment"** means any environment in which users interact with the Licensed Work using non-live, test, simulated, or synthetic assets.
+
+---
+
+**Terms**
+
+1. **Scope**
+
+All copies of the original or modified Licensed Work, and any Derivative works, are subject to this License. You must reproduce this License in each copy of the Licensed Work or any Derivative.
+
+2. **Grant of Rights**
+
+Licensor hereby grants you a non-exclusive, non-transferable, non-sublicensable right to copy, modify, create Derivative works, redistribute, and use the Licensed Work solely in a Test Environment.
+
+3. **No Production Deployment**
+
+Any use of the Licensed Work, or any Derivative thereof, in a Production Environment is strictly prohibited without a separate written license from Licensor. To request a commercial or integration license, contact legal@pitchmkt.xyz.
+
+4. **No Misrepresentation**
+
+You may not misrepresent affiliation with, or endorsement by, PitchMkt when using the Licensed Work.
+
+5. **Change Date**
+
+The Change Date is 4 years after the date of first deployment of the PitchMkt Protocol on HyperEVM, as recorded at pitchmkt.xyz or a designated on-chain record. Upon reaching the Change Date, this License is superseded by the Change License for that version of the Licensed Work.
+
+6. **Change License**
+
+The Change License shall be the GNU General Public License v3.0 or later.
+
+7. **General**
+
+If your use of the Licensed Work does not comply with this License, your rights terminate automatically and you must cease use or obtain a separate license from Licensor.
+
+If any condition of this License is held unenforceable, it shall be severed to the minimum extent necessary, and the remaining conditions shall remain in full force.
+
+This License does not grant you any right in any trademark or logo of PitchMkt.
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND TITLE.

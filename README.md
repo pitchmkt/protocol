@@ -1,66 +1,58 @@
-## Foundry
+# PitchMkt Protocol
+ 
+Decentralised football prediction markets on-chain. Users stake stablecoins, predict ten match outcomes, and compete for proportional payouts from a shared prize pool.
+ 
+---
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
-
-Foundry consists of:
-
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
+# Getting Started
+ 
+### Prerequisites
+ 
+- Node.js 18+
+- [Foundry](https://book.getfoundry.sh/) — `curl -L https://foundry.paradigm.xyz | bash`
+- A funded wallet for deployment
+### Install
+ 
+```bash
+git clone https://github.com/pitchmkt/protocol
+cd protocol
+forge install
 ```
-
+ 
+### Compile
+ 
+```bash
+forge build
+```
+ 
 ### Test
-
-```shell
-$ forge test
+ 
+```bash
+forge test
 ```
 
-### Format
-
-```shell
-$ forge fmt
+Run with verbosity for gas reporting:
+ 
+```bash
+forge test -vvv --gas-report
 ```
 
-### Gas Snapshots
+---
+ 
+## Contract Addresses
+ 
+| Network | Contract | Address |
+|---|---|---|
+| — | TBD | TBD |
+| — | TBD | TBD |
+| — | TBD | TBD |
+| — | TBD | TBD |
+ 
+---
+ 
+## License
 
-```shell
-$ forge snapshot
-```
+Business Source License — see [LICENSE](LICENSE)
 
-### Anvil
+The protocol is source-available. Use in test and development environments is freely permitted. Production use requires a separate license from PitchMkt. The license converts to GPL v3 four years after mainnet deployment.
 
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
