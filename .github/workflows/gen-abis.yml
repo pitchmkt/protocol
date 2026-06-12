@@ -1,4 +1,4 @@
-name: Sync ABIs
+name: Generate ABIs and Create PR to Apps
 
 on:
   push:
