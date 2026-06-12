@@ -19,7 +19,9 @@ contract MatchweekTest is Test {
     function test_deploy_emitsMatchweekCreated() public {
         Matchweek.Match[] memory m = _buildValidMatches();
         Matchweek.Match[10] memory expected;
-        for (uint256 i = 0; i < 10; ++i) expected[i] = m[i];
+        for (uint256 i = 0; i < 10; ++i) {
+            expected[i] = m[i];
+        }
 
         // Predict the address before deployment so we can pass it to expectEmit.
         address predicted = computeCreateAddress(address(this), vm.getNonce(address(this)));
@@ -73,8 +75,7 @@ contract MatchweekTest is Test {
         Matchweek.Match[] memory m = new Matchweek.Match[](10);
         for (uint256 i = 0; i < 10; ++i) {
             m[i] = Matchweek.Match({
-                homeTeam: keccak256(abi.encodePacked("HOME", i)),
-                awayTeam: keccak256(abi.encodePacked("AWAY", i))
+                homeTeam: keccak256(abi.encodePacked("HOME", i)), awayTeam: keccak256(abi.encodePacked("AWAY", i))
             });
         }
         return m;

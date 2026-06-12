@@ -45,12 +45,7 @@ contract Matchweek is Ownable {
     /// @param entryDeadline_ Timestamp after which no more entries are accepted.
     /// @param matches        Exactly 10 matches.
     /// @param admin          Address that becomes the owner of this contract.
-    constructor(
-        uint32 matchweekId_,
-        uint40 entryDeadline_,
-        Match[] memory matches,
-        address admin
-    ) Ownable(admin) {
+    constructor(uint32 matchweekId_, uint40 entryDeadline_, Match[] memory matches, address admin) Ownable(admin) {
         if (matches.length != 10) revert WrongMatchCount(matches.length);
         if (entryDeadline_ <= uint40(block.timestamp)) revert DeadlineInPast(entryDeadline_);
 
