@@ -22,7 +22,7 @@ contract Matchweek is Ownable {
     }
 
     uint32 public immutable MATCHWEEK_ID;
-    uint40 public immutable entryDeadline;
+    uint40 public immutable ENTRY_DEADLINE;
     State public state;
     Match[10] private _matches;
 
@@ -50,11 +50,11 @@ contract Matchweek is Ownable {
         if (entryDeadline_ <= uint40(block.timestamp)) revert DeadlineInPast(entryDeadline_);
 
         MATCHWEEK_ID = matchweekId_;
-        entryDeadline = entryDeadline_;
+        ENTRY_DEADLINE = entryDeadline_;
         state = State.Open;
         _initMatches(matches);
 
-        emit MatchweekCreated(MATCHWEEK_ID, address(this), entryDeadline, _matches);
+        emit MatchweekCreated(MATCHWEEK_ID, address(this), ENTRY_DEADLINE, _matches);
     }
 
     /// @notice Returns all ten matches stored in this matchweek.

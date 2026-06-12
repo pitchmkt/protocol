@@ -59,7 +59,7 @@ contract MatchweekTest is Test {
     function test_deploy() public view {
         assertEq(uint8(matchweek.state()), uint8(Matchweek.State.Open));
         assertEq(matchweek.MATCHWEEK_ID(), MATCHWEEK_ID);
-        assertEq(matchweek.entryDeadline(), _entryDeadline);
+        assertEq(matchweek.ENTRY_DEADLINE(), _entryDeadline);
         assertEq(matchweek.owner(), ADMIN);
 
         Matchweek.Match[10] memory stored = matchweek.getMatches();
