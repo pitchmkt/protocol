@@ -5,10 +5,11 @@ on:
     branches: [main]
     paths:
       - "src/**"
+  workflow_dispatch:
 
 jobs:
-  sync-abis:
-    name: Sync ABIs to apps repo
+  gen-abis:
+    name: Generate ABIs and Create PR in Apps Repo
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -59,11 +60,11 @@ jobs:
         with:
           token: ${{ secrets.APPS_REPO_PAT }}
           path: apps
-          commit-message: "chore: sync ABIs from protocol"
-          branch: chore/sync-abis
+          commit-message: "chore: generate ABIs from protocol"
+          branch: chore/gen-abis
           delete-branch: true
-          title: "chore: sync ABIs from protocol"
+          title: "chore: generate ABIs from protocol"
           body: |
-            Automated ABI sync triggered by a push to `src/` in [pitchmkt/protocol](https://github.com/pitchmkt/protocol).
+            Automated ABI generation triggered by a push to `src/` protocol.
 
             > No changes in this PR means the ABI hasn't changed since the last sync.
