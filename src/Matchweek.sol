@@ -21,10 +21,11 @@ contract Matchweek is Ownable {
         Finalized
     }
 
-    uint32 public immutable MATCHWEEK_ID;
-    uint40 public immutable ENTRY_DEADLINE;
+    uint32 public matchweekId;
+    uint40 public entryDeadline;
     State public state;
     Match[10] private _matches;
+    bool private _initialized;
 
     /// @notice Emitted at construction to enable off-chain indexing by matchweekId.
     /// @param matchweekId   Unique identifier for this matchweek.
@@ -39,22 +40,37 @@ contract Matchweek is Ownable {
     /// @notice Thrown if the entry deadline is not in the future at construction.
     error DeadlineInPast(uint40 entryDeadline);
 
-    /// @notice Creates a new matchweek with ten matches and sets the owner.
-    /// @dev Reverts if matches.length != 10 or entryDeadline is not in the future.
+    /// @notice Thrown if `initialize` is called more than once on the same instance.
+    error AlreadyInitialized();
+
+    /// @notice Locks the implementation contract so it can never be initialized directly.
+    /// @dev Instances are meant to be deployed as EIP-1167 minimal proxy clones of this
+    ///      implementation, then initialized via {initialize}.
+    constructor() Ownable(msg.sender) {
+        _initialized = true;
+    }
+
+    /// @notice Initializes a cloned matchweek instance with ten matches and sets the owner.
+    /// @dev Reverts if already initialized, matches.length != 10, entryDeadline is not in the
+    ///      future, or admin is the zero address.
     /// @param matchweekId_   Unique identifier for this matchweek.
     /// @param entryDeadline_ Timestamp after which no more entries are accepted.
     /// @param matches        Exactly 10 matches.
     /// @param admin          Address that becomes the owner of this contract.
-    constructor(uint32 matchweekId_, uint40 entryDeadline_, Match[] memory matches, address admin) Ownable(admin) {
+    function initialize(uint32 matchweekId_, uint40 entryDeadline_, Match[] calldata matches, address admin) external {
+        if (_initialized) revert AlreadyInitialized();
         if (matches.length != 10) revert WrongMatchCount(matches.length);
         if (entryDeadline_ <= uint40(block.timestamp)) revert DeadlineInPast(entryDeadline_);
+        if (admin == address(0)) revert OwnableInvalidOwner(address(0));
 
-        MATCHWEEK_ID = matchweekId_;
-        ENTRY_DEADLINE = entryDeadline_;
+        _initialized = true;
+        matchweekId = matchweekId_;
+        entryDeadline = entryDeadline_;
         state = State.Open;
         _initMatches(matches);
+        _transferOwnership(admin);
 
-        emit MatchweekCreated(MATCHWEEK_ID, address(this), ENTRY_DEADLINE, _matches);
+        emit MatchweekCreated(matchweekId, address(this), entryDeadline, _matches);
     }
 
     /// @notice Returns all ten matches stored in this matchweek.
