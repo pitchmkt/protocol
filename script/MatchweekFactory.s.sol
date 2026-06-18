@@ -8,10 +8,9 @@ import {MatchweekFactory} from "../src/MatchweekFactory.sol";
 ///      `createMatchweek(...)` with real match data, not by this deploy script.
 contract MatchweekFactoryScript is Script {
     function run() public {
-        address admin = vm.envOr("ADMIN", msg.sender);
-
         vm.startBroadcast();
 
+        address admin = vm.envOr("ADMIN", msg.sender);
         MatchweekFactory factory = new MatchweekFactory(admin);
 
         vm.stopBroadcast();
