@@ -14,9 +14,9 @@ build:
 test:
 	forge test -vv
 
-# Deploy Matchweek to local Anvil using a named keystore account
+# Deploy MatchweekFactory to local Anvil using a named keystore account
 deploy-local: build
-	forge script script/Matchweek.s.sol:MatchweekScript \
+	forge script script/MatchweekFactory.s.sol:MatchweekFactoryScript \
 		--rpc-url $(chain) \
 		--account $(account) \
 		--broadcast \
