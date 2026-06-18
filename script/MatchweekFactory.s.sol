@@ -10,7 +10,8 @@ contract MatchweekFactoryScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        address admin = vm.envOr("ADMIN", msg.sender);
+        (, address deployer,) = vm.readCallers();
+        address admin = vm.envOr("ADMIN", deployer);
         MatchweekFactory factory = new MatchweekFactory(admin);
 
         vm.stopBroadcast();
