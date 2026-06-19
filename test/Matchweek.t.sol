@@ -9,6 +9,7 @@ import {Matchweek} from "../src/Matchweek.sol";
 contract MatchweekTest is Test {
     uint32 constant MATCHWEEK_ID = 1;
     address constant ADMIN = address(0xAD);
+    address constant ALICE = address(0xA11CE);
 
     uint40 private _entryDeadline;
     address private _implementation;
@@ -80,7 +81,6 @@ contract MatchweekTest is Test {
     }
 
     function test_deploy() public view {
-        assertEq(uint8(matchweek.state()), uint8(Matchweek.State.Open));
         assertEq(matchweek.matchweekId(), MATCHWEEK_ID);
         assertEq(matchweek.entryDeadline(), _entryDeadline);
         assertEq(matchweek.owner(), ADMIN);
@@ -93,10 +93,69 @@ contract MatchweekTest is Test {
         }
     }
 
+    ////
+    /// Submit Prediction Tests
+    ////
+
+    function test_submitPrediction() public {
+        uint8[10] memory predictions = _buildValidPredictions();
+
+        vm.expectEmit(true, true, true, true);
+        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions);
+        vm.prank(ALICE);
+        uint256 entryId = matchweek.submitPrediction(predictions);
+
+        assertEq(entryId, 0);
+        assertEq(matchweek.entryCount(), 1);
+        assertEq(matchweek.entryOwner(0), ALICE);
+        assertEq(matchweek.predictionByEntry(0), keccak256(abi.encode(predictions)));
+    }
+
+    function test_submitPrediction_sameAddressMultipleEntries() public {
+        uint8[10] memory predictions = _buildValidPredictions();
+
+        vm.startPrank(ALICE);
+        uint256 first = matchweek.submitPrediction(predictions);
+        uint256 second = matchweek.submitPrediction(predictions);
+        vm.stopPrank();
+
+        assertEq(first, 0);
+        assertEq(second, 1);
+        assertEq(matchweek.entryCount(), 2);
+        assertEq(matchweek.entryOwner(0), ALICE);
+        assertEq(matchweek.entryOwner(1), ALICE);
+        assertEq(matchweek.predictionByEntry(0), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.predictionByEntry(1), keccak256(abi.encode(predictions)));
+    }
+
+    function testRevert_submitPrediction_invalidPredictionValue() public {
+        uint8[10] memory predictions = _buildValidPredictions();
+        predictions[3] = 3;
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidPredictionValue.selector, uint256(3), uint8(3)));
+        matchweek.submitPrediction(predictions);
+    }
+
+    function testRevert_submitPrediction_entryWindowClosed() public {
+        vm.warp(_entryDeadline);
+
+        vm.expectRevert(Matchweek.EntryWindowClosed.selector);
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+    }
+
     /// @dev Deploys a fresh EIP-1167 minimal proxy clone of the implementation, mirroring how
     ///      MatchweekFactory creates instances.
     function _deployClone() internal returns (Matchweek) {
         return Matchweek(Clones.clone(_implementation));
+    }
+
+    /// @dev Builds a valid set of ten predictions (alternating home/draw/away).
+    function _buildValidPredictions() internal pure returns (uint8[10] memory predictions) {
+        for (uint256 i = 0; i < 10; ++i) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            predictions[i] = uint8(i % 3);
+        }
     }
 
     /// @dev Builds 10 valid matches using deterministic team identifiers.

@@ -5,8 +5,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title Matchweek
 /// @author PitchMkt
-/// @notice Stores the ten matches for a single PitchMkt matchweek and tracks
-///         the lifecycle state from Open through to Finalized.
+/// @notice Stores the ten matches for a single PitchMkt matchweek and accepts
+///         predictions until the entry deadline.
 contract Matchweek is Ownable {
     /// @dev homeTeam / awayTeam are bytes32 (e.g. keccak256 of a team slug).
     struct Match {
@@ -14,18 +14,13 @@ contract Matchweek is Ownable {
         bytes32 awayTeam;
     }
 
-    /// @notice Lifecycle states of a matchweek, tracked by the `state` variable.
-    enum State {
-        Open,
-        Closed,
-        Finalized
-    }
-
     uint32 public matchweekId;
     uint40 public entryDeadline;
-    State public state;
     Match[10] private _matches;
     bool private _initialized;
+    uint256 public entryCount;
+    mapping(uint256 entryId => address user) public entryOwner;
+    mapping(uint256 entryId => bytes32 predictionHash) public predictionByEntry;
 
     /// @notice Emitted at construction to enable off-chain indexing by matchweekId.
     /// @param matchweekId   Unique identifier for this matchweek.
@@ -33,6 +28,15 @@ contract Matchweek is Ownable {
     /// @param entryDeadline Timestamp after which no more entries are accepted.
     /// @param matches       The ten matches created with this matchweek.
     event MatchweekCreated(uint32 indexed matchweekId, address matchweek, uint40 entryDeadline, Match[10] matches);
+
+    /// @notice Emitted when a user submits a prediction entry.
+    /// @param entryId     Unique, sequential identifier for this entry within the matchweek.
+    /// @param user        Address that submitted the entry.
+    /// @param matchweekId Unique identifier for this matchweek.
+    /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
+    event PredictionSubmitted(
+        uint256 indexed entryId, address indexed user, uint32 indexed matchweekId, uint8[10] predictions
+    );
 
     /// @notice Thrown if the constructor is given a matches array of incorrect length.
     error WrongMatchCount(uint256 provided);
@@ -42,6 +46,12 @@ contract Matchweek is Ownable {
 
     /// @notice Thrown if `initialize` is called more than once on the same instance.
     error AlreadyInitialized();
+
+    /// @notice Thrown if a prediction is submitted after the entry deadline has passed.
+    error EntryWindowClosed();
+
+    /// @notice Thrown if a predicted outcome is not 0 (home), 1 (draw), or 2 (away).
+    error InvalidPredictionValue(uint256 index, uint8 value);
 
     /// @notice Locks the implementation contract so it can never be initialized directly.
     /// @dev Instances are meant to be deployed as EIP-1167 minimal proxy clones of this
@@ -66,11 +76,32 @@ contract Matchweek is Ownable {
         _initialized = true;
         matchweekId = matchweekId_;
         entryDeadline = entryDeadline_;
-        state = State.Open;
         _initMatches(matches);
         _transferOwnership(admin);
 
         emit MatchweekCreated(matchweekId, address(this), entryDeadline, _matches);
+    }
+
+    /// @notice Submits a prediction entry for this matchweek.
+    /// @dev Reverts if the entry deadline has passed or any predicted outcome is not 0, 1, or 2.
+    ///      Multiple entries per address are allowed. The full prediction array is not persisted
+    ///      in contract storage — only its hash, recovered from the {PredictionSubmitted} event —
+    ///      so a future claim flow can verify that predictions presented on-chain match what was
+    ///      originally submitted.
+    /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
+    /// @return entryId Unique, sequential identifier assigned to this entry.
+    function submitPrediction(uint8[10] calldata predictions) external returns (uint256 entryId) {
+        if (block.timestamp >= entryDeadline) revert EntryWindowClosed();
+
+        for (uint256 i = 0; i < 10; ++i) {
+            if (predictions[i] > 2) revert InvalidPredictionValue(i, predictions[i]);
+        }
+
+        entryId = entryCount++;
+        entryOwner[entryId] = msg.sender;
+        predictionByEntry[entryId] = keccak256(abi.encode(predictions));
+
+        emit PredictionSubmitted(entryId, msg.sender, matchweekId, predictions);
     }
 
     /// @notice Returns all ten matches stored in this matchweek.
