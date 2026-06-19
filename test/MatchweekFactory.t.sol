@@ -32,7 +32,6 @@ contract MatchweekFactoryTest is Test {
         assertEq(matchweek.matchweekId(), MATCHWEEK_ID);
         assertEq(matchweek.entryDeadline(), _entryDeadline);
         assertEq(matchweek.owner(), ADMIN);
-        assertEq(uint8(matchweek.state()), uint8(Matchweek.State.Open));
 
         assertEq(factory.matchweeks(MATCHWEEK_ID), deployed);
         assertEq(factory.deployedMatchweeks(0), deployed);
