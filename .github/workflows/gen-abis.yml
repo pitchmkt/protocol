@@ -53,8 +53,8 @@ jobs:
           token: ${{ secrets.APPS_REPO_PAT }}
           path: apps
 
-      - name: Update ABI package
-        run: cp /tmp/index.ts apps/packages/abis/src/index.ts
+      - name: Update Contracts package
+        run: cp /tmp/index.ts apps/packages/contracts/src/index.ts
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
