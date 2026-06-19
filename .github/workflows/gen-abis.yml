@@ -42,7 +42,7 @@ jobs:
               abi = json.load(f)["abi"]
             lines.append(f"export const {export_name} = {json.dumps(abi, indent=2)} as const;")
 
-          with open("/tmp/index.ts", "w") as f:
+          with open("/tmp/abis.ts", "w") as f:
             f.write("\n".join(lines) + "\n")
           EOF
 
@@ -54,7 +54,7 @@ jobs:
           path: apps
 
       - name: Update Contracts package
-        run: cp /tmp/index.ts apps/packages/contracts/src/index.ts
+        run: cp /tmp/abis.ts apps/packages/contracts/src/abis.ts
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
