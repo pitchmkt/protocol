@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 import {MatchweekFactory} from "../src/MatchweekFactory.sol";
 
@@ -14,10 +15,12 @@ contract MatchweekFactoryTest is Test {
 
     uint40 private _entryDeadline;
     MatchweekFactory public factory;
+    ERC20Mock public stablecoin;
 
     function setUp() public {
         _entryDeadline = uint40(block.timestamp + 1 days);
-        factory = new MatchweekFactory(FACTORY_OWNER);
+        stablecoin = new ERC20Mock();
+        factory = new MatchweekFactory(FACTORY_OWNER, stablecoin);
     }
 
     function test_createMatchweek() public {
@@ -32,6 +35,7 @@ contract MatchweekFactoryTest is Test {
         assertEq(matchweek.matchweekId(), MATCHWEEK_ID);
         assertEq(matchweek.entryDeadline(), _entryDeadline);
         assertEq(matchweek.owner(), ADMIN);
+        assertEq(address(matchweek.STABLECOIN()), address(stablecoin));
 
         assertEq(factory.matchweeks(MATCHWEEK_ID), deployed);
         assertEq(factory.deployedMatchweeks(0), deployed);

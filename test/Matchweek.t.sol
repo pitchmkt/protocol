@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 
 contract MatchweekTest is Test {
@@ -14,12 +15,18 @@ contract MatchweekTest is Test {
     uint40 private _entryDeadline;
     address private _implementation;
     Matchweek public matchweek;
+    ERC20Mock public stablecoin;
 
     function setUp() public {
         _entryDeadline = uint40(block.timestamp + 1 days);
-        _implementation = address(new Matchweek());
+        stablecoin = new ERC20Mock();
+        _implementation = address(new Matchweek(stablecoin));
         matchweek = _deployClone();
         matchweek.initialize(MATCHWEEK_ID, _entryDeadline, _buildValidMatches(), ADMIN);
+
+        stablecoin.mint(ALICE, 1_000_000_000);
+        vm.prank(ALICE);
+        stablecoin.approve(address(matchweek), type(uint256).max);
     }
 
     function test_deploy_emitsMatchweekCreated() public {
@@ -70,6 +77,11 @@ contract MatchweekTest is Test {
         fresh.initialize(MATCHWEEK_ID, _entryDeadline, _buildValidMatches(), address(0));
     }
 
+    function testRevert_stablecoinIsZeroAddress() public {
+        vm.expectRevert(Matchweek.InvalidStablecoin.selector);
+        new Matchweek(ERC20Mock(address(0)));
+    }
+
     function testRevert_alreadyInitialized() public {
         vm.expectRevert(Matchweek.AlreadyInitialized.selector);
         matchweek.initialize(MATCHWEEK_ID, _entryDeadline, _buildValidMatches(), ADMIN);
@@ -84,6 +96,7 @@ contract MatchweekTest is Test {
         assertEq(matchweek.matchweekId(), MATCHWEEK_ID);
         assertEq(matchweek.entryDeadline(), _entryDeadline);
         assertEq(matchweek.owner(), ADMIN);
+        assertEq(address(matchweek.STABLECOIN()), address(stablecoin));
 
         Matchweek.Match[10] memory stored = matchweek.getMatches();
         Matchweek.Match[] memory expected = _buildValidMatches();
@@ -93,30 +106,44 @@ contract MatchweekTest is Test {
         }
     }
 
+    function test_deploy_sharesStablecoinAcrossClones() public {
+        Matchweek other = _deployClone();
+        other.initialize(MATCHWEEK_ID + 1, _entryDeadline, _buildValidMatches(), ADMIN);
+
+        assertEq(address(other.STABLECOIN()), address(stablecoin));
+        assertEq(address(other.STABLECOIN()), address(matchweek.STABLECOIN()));
+    }
+
     ////
     /// Submit Prediction Tests
     ////
 
     function test_submitPrediction() public {
         uint8[10] memory predictions = _buildValidPredictions();
+        uint256 stake = matchweek.MIN_STAKE();
 
         vm.expectEmit(true, true, true, true);
-        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions);
+        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions, stake);
         vm.prank(ALICE);
-        uint256 entryId = matchweek.submitPrediction(predictions);
+        uint256 entryId = matchweek.submitPrediction(predictions, stake);
 
         assertEq(entryId, 0);
         assertEq(matchweek.entryCount(), 1);
         assertEq(matchweek.entryOwner(0), ALICE);
         assertEq(matchweek.predictionByEntry(0), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.stakeByEntry(0), stake);
+        assertEq(matchweek.totalStaked(), stake);
+        assertEq(stablecoin.balanceOf(address(matchweek)), stake);
+        assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - stake);
     }
 
     function test_submitPrediction_sameAddressMultipleEntries() public {
         uint8[10] memory predictions = _buildValidPredictions();
+        uint256 stake = matchweek.MIN_STAKE();
 
         vm.startPrank(ALICE);
-        uint256 first = matchweek.submitPrediction(predictions);
-        uint256 second = matchweek.submitPrediction(predictions);
+        uint256 first = matchweek.submitPrediction(predictions, stake);
+        uint256 second = matchweek.submitPrediction(predictions, stake * 2);
         vm.stopPrank();
 
         assertEq(first, 0);
@@ -126,22 +153,58 @@ contract MatchweekTest is Test {
         assertEq(matchweek.entryOwner(1), ALICE);
         assertEq(matchweek.predictionByEntry(0), keccak256(abi.encode(predictions)));
         assertEq(matchweek.predictionByEntry(1), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.stakeByEntry(0), stake);
+        assertEq(matchweek.stakeByEntry(1), stake * 2);
+        assertEq(matchweek.totalStaked(), stake * 3);
+        assertEq(stablecoin.balanceOf(address(matchweek)), stake * 3);
     }
 
     function testRevert_submitPrediction_invalidPredictionValue() public {
         uint8[10] memory predictions = _buildValidPredictions();
         predictions[3] = 3;
+        uint256 stake = matchweek.MIN_STAKE();
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidPredictionValue.selector, uint256(3), uint8(3)));
-        matchweek.submitPrediction(predictions);
+        vm.prank(ALICE);
+        matchweek.submitPrediction(predictions, stake);
     }
 
     function testRevert_submitPrediction_entryWindowClosed() public {
+        uint256 stake = matchweek.MIN_STAKE();
         vm.warp(_entryDeadline);
 
         vm.expectRevert(Matchweek.EntryWindowClosed.selector);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
+    }
+
+    function testRevert_submitPrediction_belowMinimumStake() public {
+        uint256 tooLow = matchweek.MIN_STAKE() - 1;
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.BelowMinimumStake.selector, tooLow, matchweek.MIN_STAKE()));
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions(), tooLow);
+    }
+
+    function testRevert_submitPrediction_insufficientAllowance() public {
+        uint256 stake = matchweek.MIN_STAKE();
+        vm.prank(ALICE);
+        stablecoin.approve(address(matchweek), 0);
+
+        vm.expectRevert();
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
+    }
+
+    function testRevert_submitPrediction_insufficientBalance() public {
+        uint256 stake = matchweek.MIN_STAKE();
+        address poor = address(0xB0B);
+        vm.prank(poor);
+        stablecoin.approve(address(matchweek), type(uint256).max);
+
+        vm.expectRevert();
+        vm.prank(poor);
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
     }
 
     /// @dev Deploys a fresh EIP-1167 minimal proxy clone of the implementation, mirroring how
