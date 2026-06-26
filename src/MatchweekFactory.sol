@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Matchweek} from "./Matchweek.sol";
 
 /// @title MatchweekFactory
@@ -27,9 +28,10 @@ contract MatchweekFactory is Ownable {
     event MatchweekDeployed(address indexed matchweek, uint32 indexed matchweekId);
 
     /// @notice Deploys the Matchweek implementation and sets the factory owner.
-    /// @param admin Address that becomes the owner of this factory.
-    constructor(address admin) Ownable(admin) {
-        IMPLEMENTATION = address(new Matchweek());
+    /// @param admin       Address that becomes the owner of this factory.
+    /// @param stablecoin  ERC20 token accepted as stake for entries, shared by every matchweek.
+    constructor(address admin, IERC20 stablecoin) Ownable(admin) {
+        IMPLEMENTATION = address(new Matchweek(stablecoin));
     }
 
     /// @notice Deploys and initializes a new Matchweek instance.
