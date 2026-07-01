@@ -17,9 +17,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Possible outcomes for a single match.
     enum Outcome {
-        Home,  // 0 — home team wins
-        Draw,  // 1 — match ends in a draw
-        Away   // 2 — away team wins
+        Home, // 0 — home team wins
+        Draw, // 1 — match ends in a draw
+        Away // 2 — away team wins
     }
 
     /// @dev homeTeam / awayTeam are bytes32 (e.g. keccak256 of a team slug).
@@ -82,10 +82,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param prizePerTier Prize pool allocated to each tier (indices 0–4 = tiers 6–10).
     /// @param unallocated  Pool amount from tiers with no winners, carried to the jackpot.
     event DistributionCommitted(
-        uint32 indexed matchweekId,
-        bytes32 claimsRoot,
-        uint256[5] prizePerTier,
-        uint256 unallocated
+        uint32 indexed matchweekId, bytes32 claimsRoot, uint256[5] prizePerTier, uint256 unallocated
     );
 
     /// @notice Emitted when a winner claims their prize.
@@ -158,7 +155,6 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if `claimPrize` is called for a tier whose staked total is zero.
     /// @dev    Indicates a bug in the admin's off-chain computation (winning tier with no stake).
     error EmptyTierPool(uint8 tier);
-
 
     modifier duringEntryWindow() {
         if (block.timestamp >= entryDeadline) revert EntryWindowClosed();
@@ -263,12 +259,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Reverts if called before the entry deadline, if outcomes have already been
     ///      published, or if any outcome value is not 0, 1, or 2.
     /// @param outcomes The ten final outcomes (0=home, 1=draw, 2=away).
-    function publishResults(uint8[10] calldata outcomes)
-        external
-        onlyOwner
-        afterEntryDeadline
-        whenResultsNotPublished
-    {
+    function publishResults(uint8[10] calldata outcomes) external onlyOwner afterEntryDeadline whenResultsNotPublished {
         for (uint256 i = 0; i < MATCH_COUNT; ++i) {
             if (outcomes[i] > MAX_OUTCOME) revert InvalidOutcome(i, outcomes[i]);
         }
@@ -288,10 +279,12 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param claimsRoot_          Merkle root over (entryId, tier) leaves for all winning entries.
     /// @param winnersStakePerTier_ Sum of individual stakes of winning entries per tier
     ///                             (indices 0–4 = tiers 6–10). Zero means no winners in that tier.
-    function commitDistribution(
-        bytes32 claimsRoot_,
-        uint256[5] calldata winnersStakePerTier_
-    ) external onlyOwner whenResultsPublished whenDistributionNotCommitted {
+    function commitDistribution(bytes32 claimsRoot_, uint256[5] calldata winnersStakePerTier_)
+        external
+        onlyOwner
+        whenResultsPublished
+        whenDistributionNotCommitted
+    {
         claimsRoot = claimsRoot_;
         winnersStakePerTier = winnersStakePerTier_;
 
@@ -367,5 +360,4 @@ contract Matchweek is Ownable, ReentrancyGuard {
     function getMatches() external view returns (Match[10] memory) {
         return _matches;
     }
-
 }

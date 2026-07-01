@@ -576,9 +576,8 @@ contract MatchweekTest is Test {
     function _commitTwoEntryDistribution(uint256 entryA, uint256 entryB, uint8 tier) internal {
         bytes32 leafA = _merkleLeaf(entryA, tier);
         bytes32 leafB = _merkleLeaf(entryB, tier);
-        bytes32 root = leafA <= leafB
-            ? keccak256(abi.encodePacked(leafA, leafB))
-            : keccak256(abi.encodePacked(leafB, leafA));
+        bytes32 root =
+            leafA <= leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
         uint256[5] memory winners;
         winners[tier - PrizeConfig.MIN_WINNING_TIER] = matchweek.stakeByEntry(entryA) + matchweek.stakeByEntry(entryB);
