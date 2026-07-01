@@ -317,7 +317,6 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      owner, the entry has already been claimed, the tier is out of range 6–10,
     ///      or the Merkle proof is invalid. Prize share is proportional to the entry's
     ///      stake within the tier: `stakeByEntry[entryId] * prizePerTier[tier] / winnersStakePerTier[tier]`.
-    ///      Follows checks-effects-interactions: `claimed` is set before the transfer.
     /// @param entryId Unique identifier of the entry to claim.
     /// @param tier    Number of correct predictions for this entry (6–10).
     /// @param proof   Merkle proof that `(entryId, tier)` is included in {claimsRoot}.
@@ -341,7 +340,6 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
         uint256 share = stakeByEntry[entryId] * prizePerTier[idx] / winnersStakePerTier[idx];
 
-        // Checks-effects-interactions: state update before external call.
         claimed[entryId] = true;
         STABLECOIN.safeTransfer(msg.sender, share);
         emit PrizeClaimed(entryId, msg.sender, share);
