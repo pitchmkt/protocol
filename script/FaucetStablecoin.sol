@@ -33,7 +33,7 @@ contract FaucetStablecoin is ERC20 {
         _mint(msg.sender, FAUCET_AMOUNT);
     }
 
-    /// @notice Matches USDC's 6 decimals so local amounts line up with {Matchweek.MIN_STAKE}.
+    /// @notice Matches USDC's 6 decimals so local amounts line up with {Matchweek.STAKE_AMOUNT}.
     function decimals() public pure override returns (uint8) {
         return 6;
     }
