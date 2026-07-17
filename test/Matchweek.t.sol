@@ -368,8 +368,8 @@ contract MatchweekTest is Test {
         uint256 expectedShare = stake * PrizeConfig.TIER7_PRIZE_PCT / 100; // tier 7 = index 1
         uint256 balanceBefore = stablecoin.balanceOf(ALICE);
 
-        vm.expectEmit(true, true, false, true);
-        emit Matchweek.PrizeClaimed(entryId, ALICE, expectedShare);
+        vm.expectEmit(true, true, true, true);
+        emit Matchweek.PrizeClaimed(matchweek.matchweekId(), entryId, ALICE, expectedShare);
         vm.prank(ALICE);
         matchweek.claimPrize(entryId, tier, new bytes32[](0));
 

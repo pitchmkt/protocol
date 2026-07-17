@@ -86,10 +86,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
     );
 
     /// @notice Emitted when a winner claims their prize.
-    /// @param entryId  The entry for which the prize is claimed.
-    /// @param claimant Address that received the prize.
-    /// @param amount   Amount of stablecoin transferred.
-    event PrizeClaimed(uint256 indexed entryId, address indexed claimant, uint256 amount);
+    /// @param matchweekId Unique identifier for this matchweek.
+    /// @param entryId     The entry for which the prize is claimed.
+    /// @param claimant    Address that received the prize.
+    /// @param amount      Amount of stablecoin transferred.
+    event PrizeClaimed(uint32 indexed matchweekId, uint256 indexed entryId, address indexed claimant, uint256 amount);
 
     /// @notice Emitted when a user submits a prediction entry.
     /// @param entryId     Unique, sequential identifier for this entry within the matchweek.
@@ -335,7 +336,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
         claimed[entryId] = true;
         STABLECOIN.safeTransfer(msg.sender, share);
-        emit PrizeClaimed(entryId, msg.sender, share);
+        emit PrizeClaimed(matchweekId, entryId, msg.sender, share);
     }
 
     /// @notice Returns all ten match outcomes published by the admin.
