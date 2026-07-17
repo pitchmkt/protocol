@@ -33,17 +33,17 @@ The prize pool is divided into tiers based on the number of correct predictions:
 - Six correct: 7% of the pool
 - Fewer than six correct: no prize
 
-If a tier has no winners, its percentage is split between the nearest higher tier that has winners and the jackpot pool.
+If a tier has no winners, its percentage is split between the nearest higher tier that has winners and the carry pool.
 
-Winners have thirty days to claim their prize. Anything unclaimed after that period is automatically added to the jackpot pool.
+Winners have thirty days to claim their prize. Anything unclaimed after that period is automatically added to the carry pool.
 
 ---
 
-## The jackpot pool
+## The carry pool
 
-The jackpot pool is the protocol's most powerful incentive. It grows matchday after matchday whenever nobody gets all ten predictions right. The longer it goes without a perfect winner, the bigger it gets, generating anticipation and attracting new participants.
+The carry pool is the protocol's most powerful incentive. It grows matchday after matchday whenever nobody gets all ten predictions right. The longer it goes without a perfect winner, the bigger it gets, generating anticipation and attracting new participants.
 
-The moment someone gets all ten correct, the jackpot pool is released and added on top of the top tier prize. There is no shortcut: the jackpot can only be won by a perfect prediction.
+The moment someone gets all ten correct, the carry pool is released and added on top of the top tier prize. There is no shortcut: the carry pool can only be won by a perfect prediction.
 
 ---
 
@@ -75,7 +75,7 @@ If the administrators do not publish results within the established deadline, th
 
 The protocol applies a 3% fee on every pool, both the global pool and each squad's pool. That fee goes entirely to the operational running of the platform and the future development of the protocol.
 
-The jackpot pool is not funded by protocol fees. It grows naturally from two sources: the percentage of any prize tier that goes unclaimed because no player reached that accuracy level, and any prizes that winners fail to collect within the thirty-day claim window. This keeps the jackpot honest — it is built entirely from unawarded prize money, not from fees taken out of players' pockets.
+The carry pool is not funded by protocol fees. It grows naturally from two sources: the percentage of any prize tier that goes unclaimed because no player reached that accuracy level, and any prizes that winners fail to collect within the thirty-day claim window. This keeps the carry pool honest — it is built entirely from unawarded prize money, not from fees taken out of players' pockets.
 
 ---
 
@@ -96,4 +96,4 @@ The most consistent and accurate players earn reputation tiers that identify the
 5. A 48-hour window opens for challenging results
 6. The pool is distributed automatically based on accuracy and capital staked
 7. Winners claim their prize within thirty days
-8. Anything unclaimed feeds the jackpot pool for the next matchday
+8. Anything unclaimed feeds the carry pool for the next matchday

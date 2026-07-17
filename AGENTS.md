@@ -2,7 +2,7 @@
 
 ## Protocol
 
-PitchMkt is a decentralised football prediction market. Each matchday, users stake stablecoins and predict the outcome of ten matches (home win / draw / away win). Entries accumulate into a shared prize pool distributed proportionally to capital staked across accuracy tiers (6–10 correct predictions). A separate jackpot pool grows until someone hits a perfect ten.
+PitchMkt is a decentralised football prediction market. Each matchday, users stake stablecoins and predict the outcome of ten matches (home win / draw / away win). Entries accumulate into a shared prize pool distributed proportionally to capital staked across accuracy tiers (6–10 correct predictions). A separate carry pool grows until someone hits a perfect ten.
 
 ---
 
@@ -90,7 +90,7 @@ function foo() public view override onlyOwner returns (uint) { ... }
 | Error | `CapWords` | `InvalidPrediction` |
 | Function, Modifier | `mixedCase` | `submitEntry`, `onlyAdmin` |
 | Function arguments, local vars, state vars | `mixedCase` | `matchId`, `stakedAmount` |
-| Constants | `UPPER_CASE_WITH_UNDERSCORES` | `MAX_MATCHES`, `JACKPOT_THRESHOLD` |
+| Constants | `UPPER_CASE_WITH_UNDERSCORES` | `MAX_MATCHES`, `CARRY_POOL_THRESHOLD` |
 | Non-external functions and variables | `_leadingUnderscore` | `_distribute`, `_poolBalance` |
 
 - Avoid `l`, `O`, `I` as single-letter variable names.

@@ -58,7 +58,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      winnersCountPerTier is the denominator for the equal split within each tier.
     uint256[5] public winnersCountPerTier;
     uint256[5] public prizePerTier;
-    // TODO: transfer unallocated amount to a persistent jackpot vault across matchweeks.
+    // TODO: transfer unallocated amount to a persistent carry pool vault across matchweeks.
     uint256 public unallocated;
     bool public distributionCommitted;
 
@@ -80,7 +80,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param matchweekId Unique identifier for this matchweek.
     /// @param claimsRoot  Merkle root over (entryId, tier) leaves for all winning entries.
     /// @param prizePerTier Prize pool allocated to each tier (indices 0–4 = tiers 6–10).
-    /// @param unallocated  Pool amount from tiers with no winners, carried to the jackpot.
+    /// @param unallocated  Pool amount from tiers with no winners, carried to the carry pool.
     event DistributionCommitted(
         uint32 indexed matchweekId, bytes32 claimsRoot, uint256[5] prizePerTier, uint256 unallocated
     );
@@ -299,7 +299,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
             }
         }
         // Remainder: empty-tier percentages + the 3% not assigned to any tier (fee — TODO).
-        // TODO: transfer unallocated to a persistent jackpot vault across matchweeks.
+        // TODO: transfer unallocated to a persistent carry pool vault across matchweeks.
         unallocated = totalStaked - totalAllocated;
         distributionCommitted = true;
 
