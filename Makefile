@@ -1,4 +1,4 @@
-.PHONY: anvil deploy-local build test clean
+.PHONY: anvil deploy-local deploy-hyperevm-testnet build test clean
 
 -include .env
 
@@ -17,7 +17,15 @@ test:
 # Deploy MatchweekFactory to local Anvil using a named keystore account
 deploy-local: build
 	forge script script/MatchweekFactory.s.sol:MatchweekFactoryScript \
-		--rpc-url $(chain) \
+		--rpc-url anvil \
+		--account $(account) \
+		--broadcast \
+		-vvvv
+
+# Deploy MatchweekFactory to HyperEVM Testnet using a named keystore account
+deploy-hyperevm-testnet: build
+	forge script script/MatchweekFactory.s.sol:MatchweekFactoryScript \
+		--rpc-url hyperevm_testnet \
 		--account $(account) \
 		--broadcast \
 		-vvvv
