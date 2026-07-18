@@ -8,3 +8,4 @@ remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
 
 [rpc_endpoints]
 anvil = "http://127.0.0.1:8545"
+hyperevm_testnet = "${HYPEREVM_TESTNET_RPC_URL}"

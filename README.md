@@ -43,8 +43,8 @@ forge test -vvv --gas-report
  
 | Network | Contract | Address |
 |---|---|---|
-| — | TBD | TBD |
-| — | TBD | TBD |
+| HyperEVM Testnet | MatchweekFactory | [`0x6a88384571dc18e104a54cdf2ae4fac02f29e0ec`](https://testnet.hyperscan.com/address/0x6a88384571dc18e104a54cdf2ae4fac02f29e0ec) |
+| HyperEVM Testnet | FaucetStablecoin (mUSDC) | [`0xb7ea5484adf800c8ae7c27e2751ce0ba00230172`](https://testnet.hyperscan.com/address/0xb7ea5484adf800c8ae7c27e2751ce0ba00230172) |
 | — | TBD | TBD |
 | — | TBD | TBD |
  

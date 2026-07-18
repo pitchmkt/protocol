@@ -10,9 +10,8 @@ uint256 constant ANVIL_CHAIN_ID = 31337;
 uint256 constant HYPEREVM_MAINNET_CHAIN_ID = 999;
 uint256 constant HYPEREVM_TESTNET_CHAIN_ID = 998;
 
-// TODO: replace with the real USDC addresses on HyperEVM mainnet/testnet before deploying there.
+// TODO: replace with the real USDC address on HyperEVM mainnet before deploying there.
 address constant HYPEREVM_MAINNET_USDC = address(0);
-address constant HYPEREVM_TESTNET_USDC = address(0);
 
 /// @dev Deploys MatchweekFactory only. Matchweek creation is driven by the admin panel calling
 ///      `createMatchweek(...)` with real match data, not by this deploy script.
@@ -35,24 +34,19 @@ contract MatchweekFactoryScript is Script {
         console.log("Stablecoin:                  ", address(stablecoin));
     }
 
-    /// @dev Resolves the stablecoin address for the chain being deployed to. Anvil gets a fresh
-    ///      FaucetStablecoin since there's no real stablecoin locally; every other known chain ID
-    ///      maps to a hardcoded address.
+    /// @dev Resolves the stablecoin address for the chain being deployed to. Anvil and HyperEVM
+    ///      Testnet get a fresh FaucetStablecoin since there's no real, trusted stablecoin on
+    ///      either; HyperEVM Mainnet maps to a hardcoded address.
     function _resolveStablecoin() private returns (IERC20) {
-        if (block.chainid == ANVIL_CHAIN_ID) {
+        if (block.chainid == ANVIL_CHAIN_ID || block.chainid == HYPEREVM_TESTNET_CHAIN_ID) {
             FaucetStablecoin faucet = new FaucetStablecoin();
-            console.log("Anvil detected - deployed FaucetStablecoin stablecoin at:", address(faucet));
+            console.log("Deployed FaucetStablecoin stablecoin at:", address(faucet));
             return IERC20(address(faucet));
         }
 
         if (block.chainid == HYPEREVM_MAINNET_CHAIN_ID) {
             require(HYPEREVM_MAINNET_USDC != address(0), "HYPEREVM_MAINNET_USDC not set");
             return IERC20(HYPEREVM_MAINNET_USDC);
-        }
-
-        if (block.chainid == HYPEREVM_TESTNET_CHAIN_ID) {
-            require(HYPEREVM_TESTNET_USDC != address(0), "HYPEREVM_TESTNET_USDC not set");
-            return IERC20(HYPEREVM_TESTNET_USDC);
         }
 
         revert("Unsupported chain ID: no stablecoin configured");
