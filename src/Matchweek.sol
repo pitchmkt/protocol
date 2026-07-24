@@ -154,32 +154,32 @@ contract Matchweek is Ownable, ReentrancyGuard {
     error EmptyTierPool(uint8 tier);
 
     modifier duringEntryWindow() {
-        if (block.timestamp >= entryDeadline) revert EntryWindowClosed();
+        _duringEntryWindow();
         _;
     }
 
     modifier afterEntryDeadline() {
-        if (block.timestamp < entryDeadline) revert DeadlineNotPassed();
+        _afterEntryDeadline();
         _;
     }
 
     modifier whenResultsNotPublished() {
-        if (resultsPublished) revert ResultsAlreadyPublished();
+        _whenResultsNotPublished();
         _;
     }
 
     modifier whenResultsPublished() {
-        if (!resultsPublished) revert ResultsNotPublished();
+        _whenResultsPublished();
         _;
     }
 
     modifier whenDistributionNotCommitted() {
-        if (distributionCommitted) revert DistributionAlreadyCommitted();
+        _whenDistributionNotCommitted();
         _;
     }
 
     modifier whenDistributionCommitted() {
-        if (!distributionCommitted) revert DistributionNotCommitted();
+        _whenDistributionCommitted();
         _;
     }
 
@@ -326,7 +326,14 @@ contract Matchweek is Ownable, ReentrancyGuard {
         // Double-hash the leaf: abi.encode produces 64 bytes (uint256 + uint8 padded),
         // which is the same length as an internal Merkle node. Double-hashing separates
         // the two domains and prevents second-preimage attacks.
-        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(entryId, tier))));
+        bytes32 leaf;
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, entryId)
+            mstore(add(ptr, 0x20), tier)
+            mstore(ptr, keccak256(ptr, 0x40))
+            leaf := keccak256(ptr, 0x20)
+        }
         if (!MerkleProof.verify(proof, claimsRoot, leaf)) revert InvalidProof(entryId, tier);
 
         uint256 idx = tier - PrizeConfig.MIN_WINNING_TIER;
@@ -351,5 +358,29 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @return The array of 10 Match structs for this matchweek.
     function getMatches() external view returns (Match[10] memory) {
         return _matches;
+    }
+
+    function _duringEntryWindow() internal view {
+        if (block.timestamp >= entryDeadline) revert EntryWindowClosed();
+    }
+
+    function _afterEntryDeadline() internal view {
+        if (block.timestamp < entryDeadline) revert DeadlineNotPassed();
+    }
+
+    function _whenResultsNotPublished() internal view {
+        if (resultsPublished) revert ResultsAlreadyPublished();
+    }
+
+    function _whenResultsPublished() internal view {
+        if (!resultsPublished) revert ResultsNotPublished();
+    }
+
+    function _whenDistributionNotCommitted() internal view {
+        if (distributionCommitted) revert DistributionAlreadyCommitted();
+    }
+
+    function _whenDistributionCommitted() internal view {
+        if (!distributionCommitted) revert DistributionNotCommitted();
     }
 }

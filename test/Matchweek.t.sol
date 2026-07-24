@@ -12,6 +12,7 @@ contract MatchweekTest is Test {
     uint32 constant MATCHWEEK_ID = 1;
     address constant ADMIN = address(0xAD);
     address constant ALICE = address(0xA11CE);
+    address constant BOB = address(0xB0B);
 
     uint40 private _entryDeadline;
     address private _implementation;
@@ -378,7 +379,6 @@ contract MatchweekTest is Test {
     }
 
     function test_claimPrize_multipleWinners_evenSplit() public {
-        address BOB = address(0xB0B);
         stablecoin.mint(BOB, 1_000_000_000);
         vm.prank(BOB);
         stablecoin.approve(address(matchweek), type(uint256).max);
