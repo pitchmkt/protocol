@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {CarryPool} from "./CarryPool.sol";
 import {Matchweek} from "./Matchweek.sol";
 
 /// @title MatchweekFactory
@@ -15,6 +16,9 @@ import {Matchweek} from "./Matchweek.sol";
 contract MatchweekFactory is Ownable {
     /// @notice Address of the Matchweek implementation that every clone delegates to.
     address public immutable IMPLEMENTATION;
+
+    /// @notice Standalone carry pool shared by every matchweek deployed through this factory.
+    CarryPool public immutable CARRY_POOL;
 
     /// @notice Deployed Matchweek address for a given matchweekId.
     mapping(uint32 matchweekId => address matchweek) public matchweeks;
@@ -30,8 +34,12 @@ contract MatchweekFactory is Ownable {
     /// @notice Deploys the Matchweek implementation and sets the factory owner.
     /// @param admin       Address that becomes the owner of this factory.
     /// @param stablecoin  ERC20 token accepted as stake for entries, shared by every matchweek.
-    constructor(address admin, IERC20 stablecoin) Ownable(admin) {
-        IMPLEMENTATION = address(new Matchweek(stablecoin));
+    /// @param carryPool   Standalone carry pool shared by every matchweek deployed through this
+    ///                    factory. Its owner must call `carryPool.setFactory(address(this))`
+    ///                    after this factory is deployed, so it can register new matchweeks.
+    constructor(address admin, IERC20 stablecoin, CarryPool carryPool) Ownable(admin) {
+        CARRY_POOL = carryPool;
+        IMPLEMENTATION = address(new Matchweek(stablecoin, carryPool));
     }
 
     /// @notice Deploys and initializes a new Matchweek instance.
@@ -50,6 +58,7 @@ contract MatchweekFactory is Ownable {
     ) external onlyOwner returns (address matchweek) {
         matchweek = Clones.clone(IMPLEMENTATION);
         Matchweek(matchweek).initialize(matchweekId, entryDeadline, matches, admin);
+        CARRY_POOL.registerMatchweek(matchweek);
 
         matchweeks[matchweekId] = matchweek;
         deployedMatchweeks.push(matchweek);

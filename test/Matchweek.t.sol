@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {CarryPool} from "../src/CarryPool.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 import {PrizeConfig} from "../src/PrizeConfig.sol";
 
@@ -17,13 +18,21 @@ contract MatchweekTest is Test {
     address private _implementation;
     Matchweek public matchweek;
     ERC20Mock public stablecoin;
+    CarryPool public carryPool;
 
     function setUp() public {
         _entryDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
-        _implementation = address(new Matchweek(stablecoin));
+        carryPool = new CarryPool(ADMIN, stablecoin);
+        _implementation = address(new Matchweek(stablecoin, carryPool));
         matchweek = _deployClone();
         matchweek.initialize(MATCHWEEK_ID, _entryDeadline, _buildValidMatches(), ADMIN);
+
+        // This test contract stands in for MatchweekFactory, the only account allowed to
+        // register matchweeks with the carry pool.
+        vm.prank(ADMIN);
+        carryPool.setFactory(address(this));
+        carryPool.registerMatchweek(address(matchweek));
 
         stablecoin.mint(ALICE, 1_000_000_000);
         vm.prank(ALICE);
@@ -80,7 +89,12 @@ contract MatchweekTest is Test {
 
     function testRevert_stablecoinIsZeroAddress() public {
         vm.expectRevert(Matchweek.InvalidStablecoin.selector);
-        new Matchweek(ERC20Mock(address(0)));
+        new Matchweek(ERC20Mock(address(0)), carryPool);
+    }
+
+    function testRevert_carryPoolIsZeroAddress() public {
+        vm.expectRevert(Matchweek.InvalidCarryPool.selector);
+        new Matchweek(stablecoin, CarryPool(address(0)));
     }
 
     function testRevert_alreadyInitialized() public {
@@ -517,6 +531,77 @@ contract MatchweekTest is Test {
         vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, entryId, uint8(8)));
         vm.prank(ALICE);
         matchweek.claimPrize(entryId, 8, new bytes32[](0));
+    }
+
+    ////
+    /// Carry Pool Tests
+    ////
+
+    function test_commitDistribution_unallocatedFundsCarryPool() public {
+        uint256 stake = matchweek.STAKE_AMOUNT();
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+
+        _publishResults();
+
+        // No winners in any tier → the entire stake is unallocated and moves to the carry pool.
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+
+        assertEq(carryPool.carriedBalance(), stake);
+        assertEq(stablecoin.balanceOf(address(carryPool)), stake);
+        assertEq(stablecoin.balanceOf(address(matchweek)), 0);
+    }
+
+    function test_commitDistribution_perfectTenReleasesCarryPool() public {
+        uint256 stake = matchweek.STAKE_AMOUNT();
+
+        // Deploy the second matchweek and have Bob enter before time is warped forward, since
+        // {initialize} requires a future entryDeadline.
+        Matchweek matchweek2 = _deployClone();
+        matchweek2.initialize(MATCHWEEK_ID + 1, _entryDeadline, _buildValidMatches(), ADMIN);
+        carryPool.registerMatchweek(address(matchweek2));
+
+        address BOB = address(0xB0B);
+        stablecoin.mint(BOB, 1_000_000_000);
+        vm.prank(BOB);
+        stablecoin.approve(address(matchweek2), type(uint256).max);
+        vm.prank(BOB);
+        uint256 entryId = matchweek2.submitPrediction(_buildValidPredictions());
+
+        // First matchweek: no winners, its entire stake seeds the carry pool.
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+        _publishResults();
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+        assertEq(carryPool.carriedBalance(), stake);
+
+        // Second matchweek: Bob hits a perfect ten and should receive the carried balance on
+        // top of the normal tier-10 prize.
+        vm.prank(ADMIN);
+        matchweek2.publishResults(_buildValidPredictions());
+
+        uint8 tier = 10;
+        bytes32 root = _merkleLeaf(entryId, tier);
+        uint256[5] memory winners;
+        winners[tier - PrizeConfig.MIN_WINNING_TIER] = 1;
+
+        vm.prank(ADMIN);
+        matchweek2.commitDistribution(root, winners);
+
+        uint256 tier10Prize = stake * PrizeConfig.TIER10_PRIZE_PCT / 100;
+        uint256 expectedPrizePerTier10 = tier10Prize + stake;
+        assertEq(matchweek2.prizePerTier(PrizeConfig.TIER_COUNT - 1), expectedPrizePerTier10);
+
+        // matchweek2's own leftover reseeds the carry pool for the next cycle.
+        uint256 expectedUnallocated2 = stake - tier10Prize;
+        assertEq(carryPool.carriedBalance(), expectedUnallocated2);
+
+        uint256 balanceBefore = stablecoin.balanceOf(BOB);
+        vm.prank(BOB);
+        matchweek2.claimPrize(entryId, tier, new bytes32[](0));
+        assertEq(stablecoin.balanceOf(BOB), balanceBefore + expectedPrizePerTier10);
     }
 
     ////

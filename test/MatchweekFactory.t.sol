@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {CarryPool} from "../src/CarryPool.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 import {MatchweekFactory} from "../src/MatchweekFactory.sol";
 
@@ -16,11 +17,16 @@ contract MatchweekFactoryTest is Test {
     uint40 private _entryDeadline;
     MatchweekFactory public factory;
     ERC20Mock public stablecoin;
+    CarryPool public carryPool;
 
     function setUp() public {
         _entryDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
-        factory = new MatchweekFactory(FACTORY_OWNER, stablecoin);
+        carryPool = new CarryPool(FACTORY_OWNER, stablecoin);
+        factory = new MatchweekFactory(FACTORY_OWNER, stablecoin, carryPool);
+
+        vm.prank(FACTORY_OWNER);
+        carryPool.setFactory(address(factory));
     }
 
     function test_createMatchweek() public {
@@ -39,6 +45,7 @@ contract MatchweekFactoryTest is Test {
 
         assertEq(factory.matchweeks(MATCHWEEK_ID), deployed);
         assertEq(factory.deployedMatchweeks(0), deployed);
+        assertEq(carryPool.isMatchweek(deployed), true);
     }
 
     function testRevert_NotOwner() public {
