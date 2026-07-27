@@ -3,7 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MatchweekFactory} from "../src/MatchweekFactory.sol";
+import {CarryPool} from "../src/CarryPool.sol";
+import {PitchMkt} from "../src/PitchMkt.sol";
 import {FaucetStablecoin} from "./FaucetStablecoin.sol";
 
 uint256 constant ANVIL_CHAIN_ID = 31337;
@@ -13,23 +14,30 @@ uint256 constant HYPEREVM_TESTNET_CHAIN_ID = 998;
 // TODO: replace with the real USDC address on HyperEVM mainnet before deploying there.
 address constant HYPEREVM_MAINNET_USDC = address(0);
 
-/// @dev Deploys MatchweekFactory only. Matchweek creation is driven by the admin panel calling
-///      `createMatchweek(...)` with real match data, not by this deploy script.
+/// @dev Deploys CarryPool and PitchMkt. Matchweek creation is driven by the admin panel
+///      calling `createMatchweek(...)` with real match data, not by this deploy script.
 ///      The stablecoin accepted as stake is fixed for every matchweek deployed through the
 ///      factory and is resolved here per chain ID — never passed in by the caller. On anvil
 ///      there's no real stablecoin to point to, so a fresh FaucetStablecoin is deployed instead.
-contract MatchweekFactoryScript is Script {
+contract PitchMktScript is Script {
     function run() public {
         vm.startBroadcast();
 
         (, address deployer,) = vm.readCallers();
         address admin = vm.envOr("ADMIN", deployer);
         IERC20 stablecoin = _resolveStablecoin();
-        MatchweekFactory factory = new MatchweekFactory(admin, stablecoin);
+
+        // We need to pass the deployer as the owner of the carry pool, so it can set the factory address after the factory is deployed.
+        // The carry pool is then transferred to the admin after the factory is set.
+        CarryPool carryPool = new CarryPool(deployer, stablecoin);
+        PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool);
+        carryPool.setFactory(address(factory));
+        carryPool.transferOwnership(admin);
 
         vm.stopBroadcast();
 
-        console.log("MatchweekFactory deployed at:", address(factory));
+        console.log("CarryPool deployed at:       ", address(carryPool));
+        console.log("PitchMkt deployed at:        ", address(factory));
         console.log("Admin:                       ", admin);
         console.log("Stablecoin:                  ", address(stablecoin));
     }

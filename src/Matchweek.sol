@@ -6,6 +6,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {CarryPool} from "./CarryPool.sol";
 import {PrizeConfig} from "./PrizeConfig.sol";
 
 /// @title Matchweek
@@ -39,8 +40,15 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Upper bound for outcome validation, derived from the {Outcome} enum.
     uint8 private constant MAX_OUTCOME = uint8(type(Outcome).max);
 
+    /// @dev Index into the tier arrays for the perfect-ten tier (tier 10 → index 4).
+    uint256 private constant TIER10_INDEX = PrizeConfig.TIER_COUNT - 1;
+
     /// @notice ERC20 token accepted as stake for entries, shared by every matchweek clone.
     IERC20 public immutable STABLECOIN;
+
+    /// @notice Standalone pool that accumulates unallocated stake across matchweeks and pays
+    ///         out to a perfect-ten winner, shared by every matchweek clone.
+    CarryPool public immutable CARRY_POOL;
 
     uint32 public matchweekId;
     uint40 public entryDeadline;
@@ -58,7 +66,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      winnersCountPerTier is the denominator for the equal split within each tier.
     uint256[5] public winnersCountPerTier;
     uint256[5] public prizePerTier;
-    // TODO: transfer unallocated amount to a persistent carry pool vault across matchweeks.
+    /// @dev Transferred to {CARRY_POOL} at the end of {commitDistribution}.
     uint256 public unallocated;
     bool public distributionCommitted;
 
@@ -118,6 +126,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Thrown if the constructor is given the zero address as the stablecoin.
     error InvalidStablecoin();
+
+    /// @notice Thrown if the constructor is given the zero address as the carry pool.
+    error InvalidCarryPool();
 
     /// @notice Thrown if `publishResults` is called before the entry deadline has passed.
     error DeadlineNotPassed();
@@ -183,16 +194,19 @@ contract Matchweek is Ownable, ReentrancyGuard {
         _;
     }
 
-    /// @notice Sets the stablecoin shared by every clone and locks the implementation contract
-    ///         so it can never be initialized directly.
+    /// @notice Sets the stablecoin and carry pool shared by every clone and locks the
+    ///         implementation contract so it can never be initialized directly.
     /// @dev Instances are meant to be deployed as EIP-1167 minimal proxy clones of this
     ///      implementation, then initialized via {initialize}. Since clones delegatecall into
-    ///      the implementation's code, STABLECOIN's value (baked into that code) is shared by
-    ///      every clone without needing to be set per-instance.
+    ///      the implementation's code, STABLECOIN's and CARRY_POOL's values (baked into that
+    ///      code) are shared by every clone without needing to be set per-instance.
     /// @param stablecoin_ ERC20 token accepted as stake for entries, for every matchweek clone.
-    constructor(IERC20 stablecoin_) Ownable(msg.sender) {
+    /// @param carryPool_  Standalone carry pool shared by every matchweek clone.
+    constructor(IERC20 stablecoin_, CarryPool carryPool_) Ownable(msg.sender) {
         if (address(stablecoin_) == address(0)) revert InvalidStablecoin();
+        if (address(carryPool_) == address(0)) revert InvalidCarryPool();
         STABLECOIN = stablecoin_;
+        CARRY_POOL = carryPool_;
         _initialized = true;
     }
 
@@ -268,6 +282,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      Prize pools are computed on-chain from {PrizeConfig} percentages and the total staked
     ///      (`entryCount * {STAKE_AMOUNT}`): tiers with no winners contribute their percentage to
     ///      {unallocated} instead.
+    ///      If tier 10 has winners (a perfect ten), {CARRY_POOL} releases its entire accumulated
+    ///      balance to this matchweek first, added on top of that tier's prize pool. {unallocated}
+    ///      is then transferred to {CARRY_POOL} regardless, seeding the next carry cycle.
     ///      Reverts if results have not been published or distribution has already been committed.
     /// @param claimsRoot_          Merkle root over (entryId, tier) leaves for all winning entries.
     /// @param winnersCountPerTier_ Number of winning entries per tier (indices 0–4 = tiers 6–10).
@@ -299,9 +316,20 @@ contract Matchweek is Ownable, ReentrancyGuard {
             }
         }
         // Remainder: empty-tier percentages + the 3% not assigned to any tier (fee — TODO).
-        // TODO: transfer unallocated to a persistent carry pool vault across matchweeks.
         unallocated = totalStaked - totalAllocated;
         distributionCommitted = true;
+
+        if (winnersCountPerTier_[TIER10_INDEX] > 0) {
+            uint256 released = CARRY_POOL.release(matchweekId);
+            if (released > 0) {
+                prizePerTier[TIER10_INDEX] += released;
+            }
+        }
+
+        if (unallocated > 0) {
+            STABLECOIN.safeTransfer(address(CARRY_POOL), unallocated);
+            CARRY_POOL.fund(matchweekId, unallocated);
+        }
 
         emit DistributionCommitted(matchweekId, claimsRoot_, prizePerTier, unallocated);
     }
