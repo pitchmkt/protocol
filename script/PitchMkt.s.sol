@@ -27,6 +27,8 @@ contract PitchMktScript is Script {
         address admin = vm.envOr("ADMIN", deployer);
         IERC20 stablecoin = _resolveStablecoin();
 
+        // We need to pass the deployer as the owner of the carry pool, so it can set the factory address after the factory is deployed.
+        // The carry pool is then transferred to the admin after the factory is set.
         CarryPool carryPool = new CarryPool(deployer, stablecoin);
         PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool);
         carryPool.setFactory(address(factory));
