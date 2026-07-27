@@ -19,7 +19,7 @@ contract CarryPool is Ownable, ReentrancyGuard {
     /// @notice ERC20 token accepted as stake, matching every registered matchweek's stablecoin.
     IERC20 public immutable STABLECOIN;
 
-    /// @notice MatchweekFactory allowed to register matchweeks via {registerMatchweek}.
+    /// @notice PitchMkt allowed to register matchweeks via {registerMatchweek}.
     /// @dev Settable once by the owner, after both this contract and the factory are deployed.
     address public factory;
 
@@ -33,7 +33,7 @@ contract CarryPool is Ownable, ReentrancyGuard {
     uint256 public carriedBalance;
 
     /// @notice Emitted when the owner sets the factory allowed to register matchweeks.
-    /// @param factory Address of the MatchweekFactory.
+    /// @param factory Address of the PitchMkt.
     event FactorySet(address indexed factory);
 
     /// @notice Emitted when the factory registers a newly deployed matchweek.
@@ -85,9 +85,9 @@ contract CarryPool is Ownable, ReentrancyGuard {
         STABLECOIN = stablecoin_;
     }
 
-    /// @notice Sets the MatchweekFactory allowed to register matchweeks.
+    /// @notice Sets the PitchMkt allowed to register matchweeks.
     /// @dev Reverts if called by anyone other than the owner, or if already set.
-    /// @param factory_ Address of the MatchweekFactory.
+    /// @param factory_ Address of the PitchMkt.
     function setFactory(address factory_) external onlyOwner {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = factory_;

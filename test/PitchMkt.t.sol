@@ -6,16 +6,16 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {CarryPool} from "../src/CarryPool.sol";
 import {Matchweek} from "../src/Matchweek.sol";
-import {MatchweekFactory} from "../src/MatchweekFactory.sol";
+import {PitchMkt} from "../src/PitchMkt.sol";
 
-contract MatchweekFactoryTest is Test {
+contract PitchMktTest is Test {
     uint32 constant MATCHWEEK_ID = 1;
     address constant FACTORY_OWNER = address(0xF0);
     address constant ADMIN = address(0xAD);
     address constant STRANGER = address(0xBAD);
 
     uint40 private _entryDeadline;
-    MatchweekFactory public factory;
+    PitchMkt public factory;
     ERC20Mock public stablecoin;
     CarryPool public carryPool;
 
@@ -23,7 +23,7 @@ contract MatchweekFactoryTest is Test {
         _entryDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
         carryPool = new CarryPool(FACTORY_OWNER, stablecoin);
-        factory = new MatchweekFactory(FACTORY_OWNER, stablecoin, carryPool);
+        factory = new PitchMkt(FACTORY_OWNER, stablecoin, carryPool);
 
         vm.prank(FACTORY_OWNER);
         carryPool.setFactory(address(factory));
@@ -34,7 +34,7 @@ contract MatchweekFactoryTest is Test {
 
         vm.prank(FACTORY_OWNER);
         vm.expectEmit(false, true, false, false);
-        emit MatchweekFactory.MatchweekDeployed(address(0), MATCHWEEK_ID);
+        emit PitchMkt.MatchweekDeployed(address(0), MATCHWEEK_ID);
         address deployed = factory.createMatchweek(MATCHWEEK_ID, _entryDeadline, matches, ADMIN);
 
         Matchweek matchweek = Matchweek(deployed);

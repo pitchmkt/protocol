@@ -7,13 +7,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {CarryPool} from "./CarryPool.sol";
 import {Matchweek} from "./Matchweek.sol";
 
-/// @title MatchweekFactory
+/// @title PitchMkt
 /// @author PitchMkt
 /// @notice Restricts deployment of new Matchweek instances to the contract owner, and keeps
 ///         an on-chain registry of every Matchweek deployed through it.
 /// @dev Deploys a single Matchweek implementation at construction and creates new instances
 ///      as EIP-1167 minimal proxy clones, initialized via {Matchweek.initialize}.
-contract MatchweekFactory is Ownable {
+contract PitchMkt is Ownable {
     /// @notice Address of the Matchweek implementation that every clone delegates to.
     address public immutable IMPLEMENTATION;
 

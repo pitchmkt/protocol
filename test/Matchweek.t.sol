@@ -28,7 +28,7 @@ contract MatchweekTest is Test {
         matchweek = _deployClone();
         matchweek.initialize(MATCHWEEK_ID, _entryDeadline, _buildValidMatches(), ADMIN);
 
-        // This test contract stands in for MatchweekFactory, the only account allowed to
+        // This test contract stands in for PitchMkt, the only account allowed to
         // register matchweeks with the carry pool.
         vm.prank(ADMIN);
         carryPool.setFactory(address(this));
@@ -206,7 +206,7 @@ contract MatchweekTest is Test {
     }
 
     /// @dev Deploys a fresh EIP-1167 minimal proxy clone of the implementation, mirroring how
-    ///      MatchweekFactory creates instances.
+    ///      PitchMkt creates instances.
     function _deployClone() internal returns (Matchweek) {
         return Matchweek(Clones.clone(_implementation));
     }
