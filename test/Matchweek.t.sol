@@ -8,6 +8,7 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {CarryPool} from "../src/CarryPool.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 import {PrizeConfig} from "../src/PrizeConfig.sol";
+import {Treasury} from "../src/Treasury.sol";
 
 contract MatchweekTest is Test {
     uint32 constant MATCHWEEK_ID = 1;
@@ -20,20 +21,25 @@ contract MatchweekTest is Test {
     Matchweek public matchweek;
     ERC20Mock public stablecoin;
     CarryPool public carryPool;
+    Treasury public treasury;
 
     function setUp() public {
         _entryDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
         carryPool = new CarryPool(ADMIN, stablecoin);
-        _implementation = address(new Matchweek(stablecoin, carryPool));
+        treasury = new Treasury(ADMIN, stablecoin);
+        _implementation = address(new Matchweek(stablecoin, carryPool, treasury));
         matchweek = _deployClone();
         matchweek.initialize(MATCHWEEK_ID, _entryDeadline, _buildValidMatches(), ADMIN);
 
         // This test contract stands in for PitchMkt, the only account allowed to
-        // register matchweeks with the carry pool.
+        // register matchweeks with the carry pool and the treasury.
         vm.prank(ADMIN);
         carryPool.setFactory(address(this));
         carryPool.registerMatchweek(address(matchweek));
+        vm.prank(ADMIN);
+        treasury.setFactory(address(this));
+        treasury.registerMatchweek(address(matchweek));
 
         stablecoin.mint(ALICE, 1_000_000_000);
         vm.prank(ALICE);
@@ -90,12 +96,17 @@ contract MatchweekTest is Test {
 
     function testRevert_stablecoinIsZeroAddress() public {
         vm.expectRevert(Matchweek.InvalidStablecoin.selector);
-        new Matchweek(ERC20Mock(address(0)), carryPool);
+        new Matchweek(ERC20Mock(address(0)), carryPool, treasury);
     }
 
     function testRevert_carryPoolIsZeroAddress() public {
         vm.expectRevert(Matchweek.InvalidCarryPool.selector);
-        new Matchweek(stablecoin, CarryPool(address(0)));
+        new Matchweek(stablecoin, CarryPool(address(0)), treasury);
+    }
+
+    function testRevert_treasuryIsZeroAddress() public {
+        vm.expectRevert(Matchweek.InvalidTreasury.selector);
+        new Matchweek(stablecoin, carryPool, Treasury(payable(address(0))));
     }
 
     function testRevert_alreadyInitialized() public {
@@ -300,15 +311,17 @@ contract MatchweekTest is Test {
         uint256[5] memory winners;
         winners[0] = 1;
 
-        // prizePerTier[0] = stake * TIER6_PRIZE_PCT / 100, unallocated = remainder
+        // prizePerTier[0] = stake * TIER6_PRIZE_PCT / 100, fee = stake * PROTOCOL_FEE_PCT / 100,
+        // unallocated = remainder after both.
         uint256 expectedPrize = stake * PrizeConfig.TIER6_PRIZE_PCT / 100;
-        uint256 expectedUnallocated = stake - expectedPrize;
+        uint256 expectedFee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedUnallocated = stake - expectedPrize - expectedFee;
 
         uint256[5] memory expectedPrizes;
         expectedPrizes[0] = expectedPrize;
 
         vm.expectEmit(true, false, false, true);
-        emit Matchweek.DistributionCommitted(MATCHWEEK_ID, root, expectedPrizes, expectedUnallocated);
+        emit Matchweek.DistributionCommitted(MATCHWEEK_ID, root, expectedPrizes, expectedUnallocated, expectedFee);
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, winners);
 
@@ -316,6 +329,7 @@ contract MatchweekTest is Test {
         assertEq(matchweek.claimsRoot(), root);
         assertEq(matchweek.prizePerTier(0), expectedPrize);
         assertEq(matchweek.unallocated(), expectedUnallocated);
+        assertEq(matchweek.protocolFee(), expectedFee);
     }
 
     function test_commitDistribution_emptyTiersGoToUnallocated() public {
@@ -325,11 +339,13 @@ contract MatchweekTest is Test {
 
         _publishResults();
 
-        // No winners in any tier → all goes to unallocated.
+        // No winners in any tier → everything except the protocol fee goes to unallocated.
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        assertEq(matchweek.unallocated(), stake);
+        uint256 expectedFee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        assertEq(matchweek.unallocated(), stake - expectedFee);
+        assertEq(matchweek.protocolFee(), expectedFee);
         for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
             assertEq(matchweek.prizePerTier(i), 0);
         }
@@ -544,12 +560,13 @@ contract MatchweekTest is Test {
 
         _publishResults();
 
-        // No winners in any tier → the entire stake is unallocated and moves to the carry pool.
+        // No winners in any tier → everything except the protocol fee moves to the carry pool.
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        assertEq(carryPool.carriedBalance(), stake);
-        assertEq(stablecoin.balanceOf(address(carryPool)), stake);
+        uint256 expectedCarry = stake - stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        assertEq(carryPool.carriedBalance(), expectedCarry);
+        assertEq(stablecoin.balanceOf(address(carryPool)), expectedCarry);
         assertEq(stablecoin.balanceOf(address(matchweek)), 0);
     }
 
@@ -561,6 +578,7 @@ contract MatchweekTest is Test {
         Matchweek matchweek2 = _deployClone();
         matchweek2.initialize(MATCHWEEK_ID + 1, _entryDeadline, _buildValidMatches(), ADMIN);
         carryPool.registerMatchweek(address(matchweek2));
+        treasury.registerMatchweek(address(matchweek2));
 
         address BOB = address(0xB0B);
         stablecoin.mint(BOB, 1_000_000_000);
@@ -569,13 +587,15 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         uint256 entryId = matchweek2.submitPrediction(_buildValidPredictions());
 
-        // First matchweek: no winners, its entire stake seeds the carry pool.
+        uint256 fee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+
+        // First matchweek: no winners, its stake net of the fee seeds the carry pool.
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions());
         _publishResults();
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
-        assertEq(carryPool.carriedBalance(), stake);
+        assertEq(carryPool.carriedBalance(), stake - fee);
 
         // Second matchweek: Bob hits a perfect ten and should receive the carried balance on
         // top of the normal tier-10 prize.
@@ -591,17 +611,96 @@ contract MatchweekTest is Test {
         matchweek2.commitDistribution(root, winners);
 
         uint256 tier10Prize = stake * PrizeConfig.TIER10_PRIZE_PCT / 100;
-        uint256 expectedPrizePerTier10 = tier10Prize + stake;
+        uint256 expectedPrizePerTier10 = tier10Prize + (stake - fee);
         assertEq(matchweek2.prizePerTier(PrizeConfig.TIER_COUNT - 1), expectedPrizePerTier10);
 
-        // matchweek2's own leftover reseeds the carry pool for the next cycle.
-        uint256 expectedUnallocated2 = stake - tier10Prize;
+        // matchweek2's own leftover, net of its fee, reseeds the carry pool for the next cycle.
+        uint256 expectedUnallocated2 = stake - tier10Prize - fee;
         assertEq(carryPool.carriedBalance(), expectedUnallocated2);
 
         uint256 balanceBefore = stablecoin.balanceOf(BOB);
         vm.prank(BOB);
         matchweek2.claimPrize(entryId, tier, new bytes32[](0));
         assertEq(stablecoin.balanceOf(BOB), balanceBefore + expectedPrizePerTier10);
+    }
+
+    ////
+    /// Protocol Fee Tests
+    ////
+
+    function test_commitDistribution_feeGoesToTreasury() public {
+        uint256 stake = matchweek.STAKE_AMOUNT();
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+
+        _publishResults();
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+
+        uint256 expectedFee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        assertEq(treasury.collectedBalance(), expectedFee);
+        assertEq(treasury.collectedByMatchweek(MATCHWEEK_ID), expectedFee);
+        assertEq(stablecoin.balanceOf(address(treasury)), expectedFee);
+    }
+
+    /// @dev The whitepaper requires the carry pool to hold unawarded prize money only, never fees.
+    function test_commitDistribution_carryPoolExcludesFee() public {
+        uint256 stake = matchweek.STAKE_AMOUNT();
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+
+        _publishResults();
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+
+        uint256 expectedFee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        assertEq(carryPool.carriedBalance(), stake - expectedFee);
+        assertEq(matchweek.unallocated(), stake - expectedFee);
+    }
+
+    /// @dev Every staked unit must end up in exactly one of: tier prizes, carry pool, treasury.
+    function test_commitDistribution_reconcilesToTotalStaked() public {
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+
+        _publishResults();
+
+        // Winners in tiers 6 and 9, leaving tiers 7, 8 and 10 empty.
+        uint256[5] memory winners;
+        winners[0] = 1;
+        winners[3] = 1;
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), winners);
+
+        uint256 totalStaked = 3 * matchweek.STAKE_AMOUNT();
+        uint256 totalPrizes;
+        for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
+            totalPrizes += matchweek.prizePerTier(i);
+        }
+
+        assertEq(totalPrizes + carryPool.carriedBalance() + treasury.collectedBalance(), totalStaked);
+        assertEq(stablecoin.balanceOf(address(matchweek)), totalPrizes);
+    }
+
+    /// @dev Integer-division dust must fall to the carry pool, never inflate the fee.
+    function test_commitDistribution_feeNeverExceedsItsPercentage() public {
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions());
+
+        _publishResults();
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+
+        uint256 totalStaked = matchweek.STAKE_AMOUNT();
+        assertLe(matchweek.protocolFee() * 100, totalStaked * PrizeConfig.PROTOCOL_FEE_PCT);
     }
 
     ////

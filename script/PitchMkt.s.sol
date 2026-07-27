@@ -5,6 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {CarryPool} from "../src/CarryPool.sol";
 import {PitchMkt} from "../src/PitchMkt.sol";
+import {Treasury} from "../src/Treasury.sol";
 import {FaucetStablecoin} from "./FaucetStablecoin.sol";
 
 uint256 constant ANVIL_CHAIN_ID = 31337;
@@ -27,16 +28,21 @@ contract PitchMktScript is Script {
         address admin = vm.envOr("ADMIN", deployer);
         IERC20 stablecoin = _resolveStablecoin();
 
-        // We need to pass the deployer as the owner of the carry pool, so it can set the factory address after the factory is deployed.
-        // The carry pool is then transferred to the admin after the factory is set.
+        // We need to pass the deployer as the owner of the carry pool and the treasury, so it can set
+        // the factory address after the factory is deployed. Both are then transferred to the admin
+        // once the factory is set.
         CarryPool carryPool = new CarryPool(deployer, stablecoin);
-        PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool);
+        Treasury treasury = new Treasury(deployer, stablecoin);
+        PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool, treasury);
         carryPool.setFactory(address(factory));
         carryPool.transferOwnership(admin);
+        treasury.setFactory(address(factory));
+        treasury.transferOwnership(admin);
 
         vm.stopBroadcast();
 
         console.log("CarryPool deployed at:       ", address(carryPool));
+        console.log("Treasury deployed at:        ", address(treasury));
         console.log("PitchMkt deployed at:        ", address(factory));
         console.log("Admin:                       ", admin);
         console.log("Stablecoin:                  ", address(stablecoin));
