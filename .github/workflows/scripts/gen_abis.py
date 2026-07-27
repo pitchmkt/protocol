@@ -2,7 +2,7 @@ import json
 
 CONTRACTS = [
     ("Matchweek", "matchweekAbi"),
-    ("MatchweekFactory", "matchweekFactoryAbi"),
+    ("PitchMkt", "pitchMktAbi"),
 ]
 
 OUTPUT_PATH = "/tmp/abis.ts"
