@@ -26,8 +26,7 @@ contract PitchMktScript is Script {
         (, address deployer,) = vm.readCallers();
         address admin = vm.envOr("ADMIN", deployer);
         IERC20 stablecoin = _resolveStablecoin();
-        // CarryPool is owned by the broadcasting deployer just long enough to call
-        // `setFactory`, then ownership moves to `admin` — mirroring the PitchMkt owner.
+
         CarryPool carryPool = new CarryPool(deployer, stablecoin);
         PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool);
         carryPool.setFactory(address(factory));
