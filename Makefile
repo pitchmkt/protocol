@@ -14,17 +14,17 @@ build:
 test:
 	forge test -vv
 
-# Deploy MatchweekFactory to local Anvil using a named keystore account
+# Deploy PitchMkt to local Anvil using a named keystore account
 deploy-local: build
-	forge script script/MatchweekFactory.s.sol:MatchweekFactoryScript \
+	forge script script/PitchMkt.s.sol:PitchMktScript \
 		--rpc-url anvil \
 		--account $(account) \
 		--broadcast \
 		-vvvv
 
-# Deploy MatchweekFactory to HyperEVM Testnet using a named keystore account
+# Deploy PitchMkt to HyperEVM Testnet using a named keystore account
 deploy-hyperevm-testnet: build
-	forge script script/MatchweekFactory.s.sol:MatchweekFactoryScript \
+	forge script script/PitchMkt.s.sol:PitchMktScript \
 		--rpc-url hyperevm_testnet \
 		--account $(account) \
 		--broadcast \
