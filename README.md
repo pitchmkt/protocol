@@ -43,10 +43,10 @@ forge test -vvv --gas-report
  
 | Network | Contract | Address |
 |---|---|---|
-| HyperEVM Testnet | MatchweekFactory | [`0x6a88384571dc18e104a54cdf2ae4fac02f29e0ec`](https://testnet.hyperscan.com/address/0x6a88384571dc18e104a54cdf2ae4fac02f29e0ec) |
-| HyperEVM Testnet | FaucetStablecoin (mUSDC) | [`0xb7ea5484adf800c8ae7c27e2751ce0ba00230172`](https://testnet.hyperscan.com/address/0xb7ea5484adf800c8ae7c27e2751ce0ba00230172) |
-| — | TBD | TBD |
-| — | TBD | TBD |
+| HyperEVM Testnet | PitchMkt | [`0xf0e17329e4344a9bb8aeff517976346c9060c0bb`](https://testnet.hyperscan.com/address/0xf0e17329e4344a9bb8aeff517976346c9060c0bb) |
+| HyperEVM Testnet | CarryPool | [`0x4706249a4a88e4966a12b4378bbeb5c93ed8a5ed`](https://testnet.hyperscan.com/address/0x4706249a4a88e4966a12b4378bbeb5c93ed8a5ed) |
+| HyperEVM Testnet | Treasury | [`0x15ef3485f44179a61a6610817512eaa812285046`](https://testnet.hyperscan.com/address/0x15ef3485f44179a61a6610817512eaa812285046) |
+| HyperEVM Testnet | FaucetStablecoin (mUSDC) | [`0x253f1f30bf3137ac4e7c516d5651f76ba5aef771`](https://testnet.hyperscan.com/address/0x253f1f30bf3137ac4e7c516d5651f76ba5aef771) |
  
 ---
  
