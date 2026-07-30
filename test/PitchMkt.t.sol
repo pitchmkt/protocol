@@ -7,6 +7,7 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {CarryPool} from "../src/CarryPool.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 import {PitchMkt} from "../src/PitchMkt.sol";
+import {Treasury} from "../src/Treasury.sol";
 
 contract PitchMktTest is Test {
     uint32 constant MATCHWEEK_ID = 1;
@@ -18,15 +19,19 @@ contract PitchMktTest is Test {
     PitchMkt public factory;
     ERC20Mock public stablecoin;
     CarryPool public carryPool;
+    Treasury public treasury;
 
     function setUp() public {
         _entryDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
         carryPool = new CarryPool(FACTORY_OWNER, stablecoin);
-        factory = new PitchMkt(FACTORY_OWNER, stablecoin, carryPool);
+        treasury = new Treasury(FACTORY_OWNER, stablecoin);
+        factory = new PitchMkt(FACTORY_OWNER, stablecoin, carryPool, treasury);
 
         vm.prank(FACTORY_OWNER);
         carryPool.setFactory(address(factory));
+        vm.prank(FACTORY_OWNER);
+        treasury.setFactory(address(factory));
     }
 
     function test_createMatchweek() public {
@@ -46,6 +51,8 @@ contract PitchMktTest is Test {
         assertEq(factory.matchweeks(MATCHWEEK_ID), deployed);
         assertEq(factory.deployedMatchweeks(0), deployed);
         assertEq(carryPool.isMatchweek(deployed), true);
+        assertEq(treasury.isMatchweek(deployed), true);
+        assertEq(address(matchweek.TREASURY()), address(treasury));
     }
 
     function testRevert_NotOwner() public {
