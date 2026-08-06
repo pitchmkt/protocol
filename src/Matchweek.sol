@@ -30,10 +30,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
         bytes32 awayTeam;
     }
 
-    /// @notice Fixed stake required per prediction: 5 USDC (6 decimals).
-    /// @dev Stake is fixed for now so prize shares split evenly by winner count within each tier.
-    ///      Variable staking is planned for a future iteration.
-    uint256 public constant STAKE_AMOUNT = 5_000_000;
+    /// @notice Minimum stake accepted per prediction: 5 USDC (6 decimals).
+    /// @dev Stake is variable above this floor; each winner's prize share is proportional to
+    ///      what it staked (see {claimPrize}), not split evenly by winner count.
+    uint256 public constant MIN_STAKE_AMOUNT = 5_000_000;
 
     /// @notice Number of matches per matchweek.
     uint256 public constant MATCH_COUNT = 10;
@@ -62,14 +62,17 @@ contract Matchweek is Ownable, ReentrancyGuard {
     uint256 public predictionCount;
     mapping(uint256 predictionId => address user) public predictionOwner;
     mapping(uint256 predictionId => bytes32 hash) public predictionHash;
+    mapping(uint256 predictionId => uint256 stake) public predictionStake;
+    /// @notice Sum of every prediction's stake in this matchweek.
+    uint256 public totalStaked;
 
     uint8[10] private _outcomes;
     bool public resultsPublished;
 
     bytes32 public claimsRoot;
     /// @dev Tiers 6–10 are stored at indices 0–4 (index = tier - {PrizeConfig.MIN_WINNING_TIER}).
-    ///      winnersCountPerTier is the denominator for the equal split within each tier.
-    uint256[5] public winnersCountPerTier;
+    ///      totalStakePerTier is the denominator for each winning prediction's proportional share.
+    uint256[5] public totalStakePerTier;
     uint256[5] public prizePerTier;
     /// @dev Transferred to {CARRY_POOL} at the end of {commitDistribution}.
     uint256 public unallocated;
@@ -119,8 +122,13 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param user        Address that submitted the prediction.
     /// @param matchweekId Unique identifier for this matchweek.
     /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
+    /// @param stake       Amount of stablecoin staked on this prediction.
     event PredictionSubmitted(
-        uint256 indexed predictionId, address indexed user, uint32 indexed matchweekId, uint8[10] predictions
+        uint256 indexed predictionId,
+        address indexed user,
+        uint32 indexed matchweekId,
+        uint8[10] predictions,
+        uint256 stake
     );
 
     /// @notice Thrown if the constructor is given a matches array of incorrect length.
@@ -137,6 +145,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Thrown if a predicted outcome is not 0 (home), 1 (draw), or 2 (away).
     error InvalidPredictionValue(uint256 index, uint8 value);
+
+    /// @notice Thrown if a prediction is submitted with a stake below {MIN_STAKE_AMOUNT}.
+    error StakeTooLow(uint256 provided, uint256 minimum);
 
     /// @notice Thrown if the constructor is given the zero address as the stablecoin.
     error InvalidStablecoin();
@@ -256,21 +267,23 @@ contract Matchweek is Ownable, ReentrancyGuard {
         emit MatchweekCreated(matchweekId, address(this), predictionDeadline, _matches);
     }
 
-    /// @notice Submits a prediction for this matchweek, staking {STAKE_AMOUNT} stablecoin on it.
-    /// @dev Reverts if the prediction deadline has passed or any predicted outcome is not 0, 1, or 2.
-    ///      Multiple predictions per address are allowed. The full prediction array is not persisted
-    ///      in contract storage — only its hash, recoverable from the {PredictionSubmitted} event —
-    ///      so {claimPrize} can verify that predictions presented on-chain match what was originally
-    ///      submitted. Pulls {STAKE_AMOUNT} from the caller via `transferFrom`, which requires prior
-    ///      `approve`.
+    /// @notice Submits a prediction for this matchweek, staking `stake` stablecoin on it.
+    /// @dev Reverts if the prediction deadline has passed, `stake` is below {MIN_STAKE_AMOUNT}, or
+    ///      any predicted outcome is not 0, 1, or 2. Multiple predictions per address are allowed.
+    ///      The full prediction array is not persisted in contract storage — only its hash,
+    ///      recoverable from the {PredictionSubmitted} event — so {claimPrize} can verify that
+    ///      predictions presented on-chain match what was originally submitted. Pulls `stake` from
+    ///      the caller via `transferFrom`, which requires prior `approve`.
     /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
+    /// @param stake       Amount of stablecoin to stake on this prediction, at least {MIN_STAKE_AMOUNT}.
     /// @return predictionId Unique, sequential identifier assigned to this prediction.
-    function submitPrediction(uint8[10] calldata predictions)
+    function submitPrediction(uint8[10] calldata predictions, uint256 stake)
         external
         nonReentrant
         duringPredictionWindow
         returns (uint256 predictionId)
     {
+        if (stake < MIN_STAKE_AMOUNT) revert StakeTooLow(stake, MIN_STAKE_AMOUNT);
         for (uint256 i = 0; i < MATCH_COUNT; ++i) {
             if (predictions[i] > MAX_OUTCOME) revert InvalidPredictionValue(i, predictions[i]);
         }
@@ -278,9 +291,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
         predictionId = predictionCount++;
         predictionOwner[predictionId] = msg.sender;
         predictionHash[predictionId] = keccak256(abi.encode(predictions));
+        predictionStake[predictionId] = stake;
+        totalStaked += stake;
 
-        STABLECOIN.safeTransferFrom(msg.sender, address(this), STAKE_AMOUNT);
-        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, predictions);
+        STABLECOIN.safeTransferFrom(msg.sender, address(this), stake);
+        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, predictions, stake);
     }
 
     /// @notice Publishes the ten final match outcomes on-chain, opening the claim phase.
@@ -303,12 +318,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
         emit ResultsPublished(matchweekId, outcomes);
     }
 
-    /// @notice Commits the prize distribution as a Merkle root and the per-tier winner stakes.
+    /// @notice Commits the prize distribution as a Merkle root and the per-tier winning stake.
     /// @dev Each Merkle leaf is `keccak256(abi.encode(predictionId, tier))`.
     ///      Tiers 6–10 map to indices 0–4 (`index = tier - 6`).
-    ///      Prize pools are computed on-chain from {PrizeConfig} percentages and the total staked
-    ///      (`predictionCount * {STAKE_AMOUNT}`): tiers with no winners contribute their percentage to
-    ///      {unallocated} instead.
+    ///      Prize pools are computed on-chain from {PrizeConfig} percentages and {totalStaked}:
+    ///      tiers with no winners contribute their percentage to {unallocated} instead.
     ///      {PrizeConfig.PROTOCOL_FEE_PCT} of the total staked is retained as {protocolFee} and
     ///      transferred to {TREASURY}. {unallocated} is the remainder after prizes and fee, so the
     ///      carry pool only ever receives unawarded prize money — never fee revenue.
@@ -316,17 +330,18 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      balance to this matchweek first, added on top of that tier's prize pool. {unallocated}
     ///      is then transferred to {CARRY_POOL} regardless, seeding the next carry cycle.
     ///      Reverts if results have not been published or distribution has already been committed.
-    /// @param claimsRoot_          Merkle root over (predictionId, tier) leaves for all winning predictions.
-    /// @param winnersCountPerTier_ Number of winning predictions per tier (indices 0–4 = tiers 6–10).
-    ///                             Zero means no winners in that tier.
-    function commitDistribution(bytes32 claimsRoot_, uint256[5] calldata winnersCountPerTier_)
+    /// @param claimsRoot_        Merkle root over (predictionId, tier) leaves for all winning predictions.
+    /// @param totalStakePerTier_ Sum of the winning predictions' stakes per tier (indices 0–4 = tiers
+    ///                           6–10), used as the denominator for each winner's proportional
+    ///                           share in {claimPrize}. Zero means no winners in that tier.
+    function commitDistribution(bytes32 claimsRoot_, uint256[5] calldata totalStakePerTier_)
         external
         onlyOwner
         whenResultsPublished
         whenDistributionNotCommitted
     {
         claimsRoot = claimsRoot_;
-        winnersCountPerTier = winnersCountPerTier_;
+        totalStakePerTier = totalStakePerTier_;
 
         uint256[5] memory pcts = [
             PrizeConfig.TIER6_PRIZE_PCT,
@@ -336,10 +351,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
             PrizeConfig.TIER10_PRIZE_PCT
         ];
 
-        uint256 totalStaked = predictionCount * STAKE_AMOUNT;
         uint256 totalAllocated;
         for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
-            if (winnersCountPerTier_[i] > 0) {
+            if (totalStakePerTier_[i] > 0) {
                 uint256 tierPrize = totalStaked * pcts[i] / PrizeConfig.PCT_DENOMINATOR;
                 prizePerTier[i] = tierPrize;
                 totalAllocated += tierPrize;
@@ -353,7 +367,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         unallocated = totalStaked - totalAllocated - fee;
         distributionCommitted = true;
 
-        if (winnersCountPerTier_[TIER10_INDEX] > 0) {
+        if (totalStakePerTier_[TIER10_INDEX] > 0) {
             uint256 released = CARRY_POOL.release(matchweekId);
             if (released > 0) {
                 prizePerTier[TIER10_INDEX] += released;
@@ -376,8 +390,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Claims the prize for a winning prediction by providing a Merkle proof.
     /// @dev Reverts if distribution has not been committed, the caller is not the prediction
     ///      owner, the prediction has already been claimed, the tier is out of range 6–10,
-    ///      or the Merkle proof is invalid. Prize share is split evenly among the tier's
-    ///      winners: `prizePerTier[tier] / winnersCountPerTier[tier]`.
+    ///      or the Merkle proof is invalid. Prize share is proportional to what this prediction
+    ///      staked relative to the tier's total: `prizePerTier[tier] * predictionStake[predictionId]
+    ///      / totalStakePerTier[tier]`.
     /// @param predictionId Unique identifier of the prediction to claim.
     /// @param tier    Number of correct picks for this prediction (6–10).
     /// @param proof   Merkle proof that `(predictionId, tier)` is included in {claimsRoot}.
@@ -404,9 +419,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
         if (!MerkleProof.verify(proof, claimsRoot, leaf)) revert InvalidProof(predictionId, tier);
 
         uint256 idx = tier - PrizeConfig.MIN_WINNING_TIER;
-        if (winnersCountPerTier[idx] == 0) revert EmptyTierPool(tier);
+        if (totalStakePerTier[idx] == 0) revert EmptyTierPool(tier);
 
-        uint256 share = prizePerTier[idx] / winnersCountPerTier[idx];
+        uint256 share = prizePerTier[idx] * predictionStake[predictionId] / totalStakePerTier[idx];
 
         claimed[predictionId] = true;
         STABLECOIN.safeTransfer(msg.sender, share);

@@ -147,28 +147,30 @@ contract MatchweekTest is Test {
 
     function test_submitPrediction() public {
         uint8[10] memory predictions = _buildValidPredictions();
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
 
         vm.expectEmit(true, true, true, true);
-        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions);
+        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions, stake);
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(predictions);
+        uint256 predictionId = matchweek.submitPrediction(predictions, stake);
 
         assertEq(predictionId, 0);
         assertEq(matchweek.predictionCount(), 1);
         assertEq(matchweek.predictionOwner(0), ALICE);
         assertEq(matchweek.predictionHash(0), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.predictionStake(0), stake);
+        assertEq(matchweek.totalStaked(), stake);
         assertEq(stablecoin.balanceOf(address(matchweek)), stake);
         assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - stake);
     }
 
     function test_submitPrediction_sameAddressMultiplePredictions() public {
         uint8[10] memory predictions = _buildValidPredictions();
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
 
         vm.startPrank(ALICE);
-        uint256 first = matchweek.submitPrediction(predictions);
-        uint256 second = matchweek.submitPrediction(predictions);
+        uint256 first = matchweek.submitPrediction(predictions, stake);
+        uint256 second = matchweek.submitPrediction(predictions, stake);
         vm.stopPrank();
 
         assertEq(first, 0);
@@ -178,43 +180,68 @@ contract MatchweekTest is Test {
         assertEq(matchweek.predictionOwner(1), ALICE);
         assertEq(matchweek.predictionHash(0), keccak256(abi.encode(predictions)));
         assertEq(matchweek.predictionHash(1), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.totalStaked(), stake * 2);
         assertEq(stablecoin.balanceOf(address(matchweek)), stake * 2);
+    }
+
+    function test_submitPrediction_variableStake() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT() * 3;
+
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+
+        assertEq(matchweek.predictionStake(predictionId), stake);
+        assertEq(matchweek.totalStaked(), stake);
+        assertEq(stablecoin.balanceOf(address(matchweek)), stake);
+        assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - stake);
     }
 
     function testRevert_submitPrediction_invalidPredictionValue() public {
         uint8[10] memory predictions = _buildValidPredictions();
         predictions[3] = 3;
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidPredictionValue.selector, uint256(3), uint8(3)));
         vm.prank(ALICE);
-        matchweek.submitPrediction(predictions);
+        matchweek.submitPrediction(predictions, stake);
+    }
+
+    function testRevert_submitPrediction_stakeTooLow() public {
+        uint256 tooLow = matchweek.MIN_STAKE_AMOUNT() - 1;
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.StakeTooLow.selector, tooLow, matchweek.MIN_STAKE_AMOUNT()));
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions(), tooLow);
     }
 
     function testRevert_submitPrediction_predictionWindowClosed() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.warp(_predictionDeadline);
 
         vm.expectRevert(Matchweek.PredictionWindowClosed.selector);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
     }
 
     function testRevert_submitPrediction_insufficientAllowance() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
         stablecoin.approve(address(matchweek), 0);
 
         vm.expectRevert();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
     }
 
     function testRevert_submitPrediction_insufficientBalance() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         address poor = address(0xB0B);
         vm.prank(poor);
         stablecoin.approve(address(matchweek), type(uint256).max);
 
         vm.expectRevert();
         vm.prank(poor);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
     }
 
     /// @dev Deploys a fresh EIP-1167 minimal proxy clone of the implementation, mirroring how
@@ -300,16 +327,16 @@ contract MatchweekTest is Test {
     ////
 
     function test_commitDistribution_prizeComputedOnChain() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
         // Alice is the only winner, in tier 6 (index 0, 7% of pool).
         bytes32 root = _merkleLeaf(0, 6);
-        uint256[5] memory winners;
-        winners[0] = 1;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[0] = stake;
 
         // prizePerTier[0] = stake * TIER6_PRIZE_PCT / 100, fee = stake * PROTOCOL_FEE_PCT / 100,
         // unallocated = remainder after both.
@@ -323,7 +350,7 @@ contract MatchweekTest is Test {
         vm.expectEmit(true, false, false, true);
         emit Matchweek.DistributionCommitted(MATCHWEEK_ID, root, expectedPrizes, expectedUnallocated, expectedFee);
         vm.prank(ADMIN);
-        matchweek.commitDistribution(root, winners);
+        matchweek.commitDistribution(root, totalStakePerTier_);
 
         assertEq(matchweek.distributionCommitted(), true);
         assertEq(matchweek.claimsRoot(), root);
@@ -333,9 +360,9 @@ contract MatchweekTest is Test {
     }
 
     function test_commitDistribution_emptyTiersGoToUnallocated() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
@@ -349,6 +376,28 @@ contract MatchweekTest is Test {
         for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
             assertEq(matchweek.prizePerTier(i), 0);
         }
+    }
+
+    function test_commitDistribution_totalStakedFromVariableStakes() public {
+        stablecoin.mint(BOB, 1_000_000_000);
+        vm.prank(BOB);
+        stablecoin.approve(address(matchweek), type(uint256).max);
+
+        uint256 aliceStake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 bobStake = matchweek.MIN_STAKE_AMOUNT() * 4;
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions(), aliceStake);
+        vm.prank(BOB);
+        matchweek.submitPrediction(_buildValidPredictions(), bobStake);
+
+        assertEq(matchweek.totalStaked(), aliceStake + bobStake);
+
+        _publishResults();
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+
+        uint256 expectedFee = (aliceStake + bobStake) * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        assertEq(matchweek.protocolFee(), expectedFee);
     }
 
     function testRevert_commitDistribution_resultsNotPublished() public {
@@ -379,9 +428,9 @@ contract MatchweekTest is Test {
     ////
 
     function test_claimPrize_singleWinner() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
@@ -390,11 +439,11 @@ contract MatchweekTest is Test {
         uint8 tier = 7;
         bytes32 leaf = _merkleLeaf(predictionId, tier);
 
-        uint256[5] memory winners;
-        winners[tier - PrizeConfig.MIN_WINNING_TIER] = 1;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = stake;
 
         vm.prank(ADMIN);
-        matchweek.commitDistribution(leaf, winners);
+        matchweek.commitDistribution(leaf, totalStakePerTier_);
 
         uint256 expectedShare = stake * PrizeConfig.TIER7_PRIZE_PCT / 100; // tier 7 = index 1
         uint256 balanceBefore = stablecoin.balanceOf(ALICE);
@@ -413,23 +462,23 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         stablecoin.approve(address(matchweek), type(uint256).max);
 
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
         vm.prank(BOB);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
-        _commitTwoPredictionDistribution(0, 1, 8);
+        _commitTwoPredictionDistribution(0, 1, 8, stake, stake);
 
-        // Tier 8 (index 2) = 15% of totalStaked, split evenly between Alice and Bob.
+        // Tier 8 (index 2) = 15% of totalStaked, split evenly since both staked the same amount.
         uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
-        uint256 winnersCount = matchweek.winnersCountPerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
 
         (bytes32[] memory proofAlice, bytes32[] memory proofBob) = _buildTwoPredictionProofs(0, 1, 8);
 
-        uint256 shareAlice = tierPool / winnersCount;
-        uint256 shareBob = tierPool / winnersCount;
+        uint256 shareAlice = tierPool * stake / tierTotalStake;
+        uint256 shareBob = tierPool * stake / tierTotalStake;
 
         vm.prank(ALICE);
         matchweek.claimPrize(0, 8, proofAlice);
@@ -440,39 +489,74 @@ contract MatchweekTest is Test {
         assertEq(stablecoin.balanceOf(BOB), 1_000_000_000 - stake + shareBob);
     }
 
+    function test_claimPrize_proportionalSplit() public {
+        stablecoin.mint(BOB, 1_000_000_000);
+        vm.prank(BOB);
+        stablecoin.approve(address(matchweek), type(uint256).max);
+
+        uint256 aliceStake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 bobStake = matchweek.MIN_STAKE_AMOUNT() * 2;
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidPredictions(), aliceStake);
+        vm.prank(BOB);
+        matchweek.submitPrediction(_buildValidPredictions(), bobStake);
+
+        _publishResults();
+        _commitTwoPredictionDistribution(0, 1, 8, aliceStake, bobStake);
+
+        uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        (bytes32[] memory proofAlice, bytes32[] memory proofBob) = _buildTwoPredictionProofs(0, 1, 8);
+
+        uint256 expectedShareAlice = tierPool * aliceStake / tierTotalStake;
+        uint256 expectedShareBob = tierPool * bobStake / tierTotalStake;
+
+        vm.prank(ALICE);
+        matchweek.claimPrize(0, 8, proofAlice);
+        vm.prank(BOB);
+        matchweek.claimPrize(1, 8, proofBob);
+
+        assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - aliceStake + expectedShareAlice);
+        assertEq(stablecoin.balanceOf(BOB), 1_000_000_000 - bobStake + expectedShareBob);
+        // Bob staked twice as much as Alice, so his share must be exactly twice hers.
+        assertEq(expectedShareBob, expectedShareAlice * 2);
+    }
+
     // Alice is in the tree at tier 7 but tries to claim tier 10 — wrong proof, fails at Merkle.
     function testRevert_claimPrize_wrongTierProof() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
         uint8 aliceTier = 7;
         bytes32 root = _merkleLeaf(0, aliceTier);
 
-        uint256[5] memory winners;
-        winners[aliceTier - 6] = 1;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[aliceTier - 6] = stake;
 
         vm.prank(ADMIN);
-        matchweek.commitDistribution(root, winners);
+        matchweek.commitDistribution(root, totalStakePerTier_);
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, uint256(0), uint8(10)));
         vm.prank(ALICE);
         matchweek.claimPrize(0, 10, new bytes32[](0));
     }
 
-    // Alice is in the tree at tier 7 but admin set winnersCountPerTier[7-6] = 0 by mistake
+    // Alice is in the tree at tier 7 but admin set totalStakePerTier[7-6] = 0 by mistake
     // → contract computes prizePerTier[7-6] = 0 → EmptyTierPool.
     function testRevert_claimPrize_emptyTierPool() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
         uint8 tier = 7;
         bytes32 root = _merkleLeaf(0, tier);
 
-        // Winners count is 0 → contract sets prizePerTier[tier-6] = 0 → EmptyTierPool on claim.
+        // Winning stake is 0 → contract sets prizePerTier[tier-6] = 0 → EmptyTierPool on claim.
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, _emptyUint5());
 
@@ -482,8 +566,9 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_distributionNotCommitted() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         vm.expectRevert(Matchweek.DistributionNotCommitted.selector);
         vm.prank(ALICE);
@@ -491,8 +576,9 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_notPredictionOwner() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -502,8 +588,9 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_alreadyClaimed() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -516,8 +603,9 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_invalidTier_tooLow() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -527,8 +615,9 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_invalidTier_tooHigh() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -538,8 +627,9 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_invalidProof() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -554,9 +644,9 @@ contract MatchweekTest is Test {
     ////
 
     function test_commitDistribution_unallocatedFundsCarryPool() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
@@ -571,7 +661,7 @@ contract MatchweekTest is Test {
     }
 
     function test_commitDistribution_perfectTenReleasesCarryPool() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
 
         // Deploy the second matchweek and have Bob enter before time is warped forward, since
         // {initialize} requires a future predictionDeadline.
@@ -585,13 +675,13 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         stablecoin.approve(address(matchweek2), type(uint256).max);
         vm.prank(BOB);
-        uint256 predictionId = matchweek2.submitPrediction(_buildValidPredictions());
+        uint256 predictionId = matchweek2.submitPrediction(_buildValidPredictions(), stake);
 
         uint256 fee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
 
         // First matchweek: no winners, its stake net of the fee seeds the carry pool.
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
         _publishResults();
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
@@ -604,11 +694,11 @@ contract MatchweekTest is Test {
 
         uint8 tier = 10;
         bytes32 root = _merkleLeaf(predictionId, tier);
-        uint256[5] memory winners;
-        winners[tier - PrizeConfig.MIN_WINNING_TIER] = 1;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = stake;
 
         vm.prank(ADMIN);
-        matchweek2.commitDistribution(root, winners);
+        matchweek2.commitDistribution(root, totalStakePerTier_);
 
         uint256 tier10Prize = stake * PrizeConfig.TIER10_PRIZE_PCT / 100;
         uint256 expectedPrizePerTier10 = tier10Prize + (stake - fee);
@@ -629,9 +719,9 @@ contract MatchweekTest is Test {
     ////
 
     function test_commitDistribution_feeGoesToTreasury() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
@@ -646,9 +736,9 @@ contract MatchweekTest is Test {
 
     /// @dev The whitepaper requires the carry pool to hold unawarded prize money only, never fees.
     function test_commitDistribution_carryPoolExcludesFee() public {
-        uint256 stake = matchweek.STAKE_AMOUNT();
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
@@ -662,45 +752,47 @@ contract MatchweekTest is Test {
 
     /// @dev Every staked unit must end up in exactly one of: tier prizes, carry pool, treasury.
     function test_commitDistribution_reconcilesToTotalStaked() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
         // Winners in tiers 6 and 9, leaving tiers 7, 8 and 10 empty.
-        uint256[5] memory winners;
-        winners[0] = 1;
-        winners[3] = 1;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[0] = stake;
+        totalStakePerTier_[3] = stake;
 
         vm.prank(ADMIN);
-        matchweek.commitDistribution(bytes32(0), winners);
+        matchweek.commitDistribution(bytes32(0), totalStakePerTier_);
 
-        uint256 totalStaked = 3 * matchweek.STAKE_AMOUNT();
+        uint256 totalStakedExpected = 3 * stake;
         uint256 totalPrizes;
         for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
             totalPrizes += matchweek.prizePerTier(i);
         }
 
-        assertEq(totalPrizes + carryPool.carriedBalance() + treasury.collectedBalance(), totalStaked);
+        assertEq(totalPrizes + carryPool.carriedBalance() + treasury.collectedBalance(), totalStakedExpected);
         assertEq(stablecoin.balanceOf(address(matchweek)), totalPrizes);
     }
 
     /// @dev Integer-division dust must fall to the carry pool, never inflate the fee.
     function test_commitDistribution_feeNeverExceedsItsPercentage() public {
+        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions());
+        matchweek.submitPrediction(_buildValidPredictions(), stake);
 
         _publishResults();
 
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        uint256 totalStaked = matchweek.STAKE_AMOUNT();
-        assertLe(matchweek.protocolFee() * 100, totalStaked * PrizeConfig.PROTOCOL_FEE_PCT);
+        uint256 totalStakedExpected = matchweek.totalStaked();
+        assertLe(matchweek.protocolFee() * 100, totalStakedExpected * PrizeConfig.PROTOCOL_FEE_PCT);
     }
 
     ////
@@ -714,15 +806,16 @@ contract MatchweekTest is Test {
         matchweek.publishResults(_buildValidPredictions());
     }
 
-    /// @dev Publishes results and commits a single-prediction distribution for the given predictionId/tier.
-    ///      For a single-leaf tree, root = leaf and proof = [].
+    /// @dev Publishes results and commits a single-prediction distribution for the given
+    ///      predictionId/tier, using that prediction's actual stake as the tier total. For a
+    ///      single-leaf tree, root = leaf and proof = [].
     function _publishAndCommitSinglePrediction(uint256 predictionId, uint8 tier) internal {
         _publishResults();
         bytes32 root = _merkleLeaf(predictionId, tier);
-        uint256[5] memory winners;
-        winners[tier - PrizeConfig.MIN_WINNING_TIER] = 1;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = matchweek.predictionStake(predictionId);
         vm.prank(ADMIN);
-        matchweek.commitDistribution(root, winners);
+        matchweek.commitDistribution(root, totalStakePerTier_);
     }
 
     /// @dev Merkle leaf for (predictionId, tier), matching the contract's double-hash encoding.
@@ -730,18 +823,25 @@ contract MatchweekTest is Test {
         return keccak256(bytes.concat(keccak256(abi.encode(predictionId, tier))));
     }
 
-    /// @dev Commits a distribution where two predictions (predictionA, predictionB) are both in the same tier.
-    function _commitTwoPredictionDistribution(uint256 predictionA, uint256 predictionB, uint8 tier) internal {
+    /// @dev Commits a distribution where two predictions (predictionA, predictionB) are both in
+    ///      the same tier, with the tier total set to the sum of their individual stakes.
+    function _commitTwoPredictionDistribution(
+        uint256 predictionA,
+        uint256 predictionB,
+        uint8 tier,
+        uint256 stakeA,
+        uint256 stakeB
+    ) internal {
         bytes32 leafA = _merkleLeaf(predictionA, tier);
         bytes32 leafB = _merkleLeaf(predictionB, tier);
         bytes32 root =
             leafA <= leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
-        uint256[5] memory winners;
-        winners[tier - PrizeConfig.MIN_WINNING_TIER] = 2;
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = stakeA + stakeB;
 
         vm.prank(ADMIN);
-        matchweek.commitDistribution(root, winners);
+        matchweek.commitDistribution(root, totalStakePerTier_);
     }
 
     /// @dev Returns the Merkle proofs for two predictions in a 2-leaf tree (same tier).
