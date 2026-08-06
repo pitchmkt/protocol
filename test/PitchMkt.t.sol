@@ -15,14 +15,14 @@ contract PitchMktTest is Test {
     address constant ADMIN = address(0xAD);
     address constant STRANGER = address(0xBAD);
 
-    uint40 private _entryDeadline;
+    uint40 private _predictionDeadline;
     PitchMkt public factory;
     ERC20Mock public stablecoin;
     CarryPool public carryPool;
     Treasury public treasury;
 
     function setUp() public {
-        _entryDeadline = uint40(block.timestamp + 1 days);
+        _predictionDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
         carryPool = new CarryPool(FACTORY_OWNER, stablecoin);
         treasury = new Treasury(FACTORY_OWNER, stablecoin);
@@ -40,11 +40,11 @@ contract PitchMktTest is Test {
         vm.prank(FACTORY_OWNER);
         vm.expectEmit(false, true, false, false);
         emit PitchMkt.MatchweekDeployed(address(0), MATCHWEEK_ID);
-        address deployed = factory.createMatchweek(MATCHWEEK_ID, _entryDeadline, matches, ADMIN);
+        address deployed = factory.createMatchweek(MATCHWEEK_ID, _predictionDeadline, matches, ADMIN);
 
         Matchweek matchweek = Matchweek(deployed);
         assertEq(matchweek.matchweekId(), MATCHWEEK_ID);
-        assertEq(matchweek.entryDeadline(), _entryDeadline);
+        assertEq(matchweek.predictionDeadline(), _predictionDeadline);
         assertEq(matchweek.owner(), ADMIN);
         assertEq(address(matchweek.STABLECOIN()), address(stablecoin));
 
@@ -60,7 +60,7 @@ contract PitchMktTest is Test {
 
         vm.prank(STRANGER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, STRANGER));
-        factory.createMatchweek(MATCHWEEK_ID, _entryDeadline, matches, ADMIN);
+        factory.createMatchweek(MATCHWEEK_ID, _predictionDeadline, matches, ADMIN);
     }
 
     /// @dev Builds 10 valid matches using deterministic team identifiers.

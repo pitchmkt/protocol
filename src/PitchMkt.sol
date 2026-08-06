@@ -37,7 +37,7 @@ contract PitchMkt is Ownable {
 
     /// @notice Deploys the Matchweek implementation and sets the factory owner.
     /// @param admin       Address that becomes the owner of this factory.
-    /// @param stablecoin  ERC20 token accepted as stake for entries, shared by every matchweek.
+    /// @param stablecoin  ERC20 token accepted as stake for predictions, shared by every matchweek.
     /// @param carryPool   Standalone carry pool shared by every matchweek deployed through this
     ///                    factory. Its owner must call `carryPool.setFactory(address(this))`
     ///                    after this factory is deployed, so it can register new matchweeks.
@@ -54,18 +54,18 @@ contract PitchMkt is Ownable {
     /// @dev Reverts if called by anyone other than the owner, or if the underlying
     ///      {Matchweek.initialize} call reverts.
     /// @param matchweekId   Unique identifier for this matchweek.
-    /// @param entryDeadline Timestamp after which no more entries are accepted.
+    /// @param predictionDeadline Timestamp after which no more predictions are accepted.
     /// @param matches       Exactly 10 matches.
     /// @param admin         Address that becomes the owner of the new Matchweek instance.
     /// @return matchweek Address of the newly deployed Matchweek clone.
     function createMatchweek(
         uint32 matchweekId,
-        uint40 entryDeadline,
+        uint40 predictionDeadline,
         Matchweek.Match[] calldata matches,
         address admin
     ) external onlyOwner returns (address matchweek) {
         matchweek = Clones.clone(IMPLEMENTATION);
-        Matchweek(matchweek).initialize(matchweekId, entryDeadline, matches, admin);
+        Matchweek(matchweek).initialize(matchweekId, predictionDeadline, matches, admin);
         CARRY_POOL.registerMatchweek(matchweek);
         TREASURY.registerMatchweek(matchweek);
 
