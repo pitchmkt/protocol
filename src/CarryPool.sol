@@ -79,7 +79,7 @@ contract CarryPool is Ownable, ReentrancyGuard {
 
     /// @notice Sets the stablecoin shared by every matchweek and the pool owner.
     /// @param admin       Address that becomes the owner of this contract.
-    /// @param stablecoin_ ERC20 token accepted as stake for entries.
+    /// @param stablecoin_ ERC20 token accepted as stake for predictions.
     constructor(address admin, IERC20 stablecoin_) Ownable(admin) {
         if (address(stablecoin_) == address(0)) revert InvalidStablecoin();
         STABLECOIN = stablecoin_;
