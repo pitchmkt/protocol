@@ -670,7 +670,6 @@ contract MatchweekTest is Test {
         carryPool.registerMatchweek(address(matchweek2));
         treasury.registerMatchweek(address(matchweek2));
 
-        address BOB = address(0xB0B);
         stablecoin.mint(BOB, 1_000_000_000);
         vm.prank(BOB);
         stablecoin.approve(address(matchweek2), type(uint256).max);

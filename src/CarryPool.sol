@@ -68,12 +68,12 @@ contract CarryPool is Ownable, ReentrancyGuard {
     error AlreadyReleased(uint32 matchweekId);
 
     modifier onlyFactory() {
-        if (msg.sender != factory) revert NotFactory();
+        _onlyFactory();
         _;
     }
 
     modifier onlyMatchweek() {
-        if (!isMatchweek[msg.sender]) revert NotMatchweek();
+        _onlyMatchweek();
         _;
     }
 
@@ -130,5 +130,13 @@ contract CarryPool is Ownable, ReentrancyGuard {
         if (amount > 0) {
             STABLECOIN.safeTransfer(msg.sender, amount);
         }
+    }
+
+    function _onlyFactory() internal view {
+        if (msg.sender != factory) revert NotFactory();
+    }
+
+    function _onlyMatchweek() internal view {
+        if (!isMatchweek[msg.sender]) revert NotMatchweek();
     }
 }
