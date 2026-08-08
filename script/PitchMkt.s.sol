@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {CarryPool} from "../src/CarryPool.sol";
+import {Disputes} from "../src/Disputes.sol";
 import {PitchMkt} from "../src/PitchMkt.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {FaucetStablecoin} from "./FaucetStablecoin.sol";
@@ -28,21 +29,26 @@ contract PitchMktScript is Script {
         address admin = vm.envOr("ADMIN", deployer);
         IERC20 stablecoin = _resolveStablecoin();
 
-        // We need to pass the deployer as the owner of the carry pool and the treasury, so it can set
-        // the factory address after the factory is deployed. Both are then transferred to the admin
-        // once the factory is set.
+        // We need to pass the deployer as the owner of the carry pool, the treasury and the
+        // disputes contract, so it can set the factory address after the factory is deployed.
+        // All three are then transferred to the admin once the factory is set.
         CarryPool carryPool = new CarryPool(deployer, stablecoin);
         Treasury treasury = new Treasury(deployer, stablecoin);
-        PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool, treasury);
+        Disputes disputes = new Disputes(deployer, stablecoin, treasury);
+        PitchMkt factory = new PitchMkt(admin, stablecoin, carryPool, treasury, disputes);
         carryPool.setFactory(address(factory));
         carryPool.transferOwnership(admin);
         treasury.setFactory(address(factory));
+        treasury.setDisputes(address(disputes));
         treasury.transferOwnership(admin);
+        disputes.setFactory(address(factory));
+        disputes.transferOwnership(admin);
 
         vm.stopBroadcast();
 
         console.log("CarryPool deployed at:       ", address(carryPool));
         console.log("Treasury deployed at:        ", address(treasury));
+        console.log("Disputes deployed at:        ", address(disputes));
         console.log("PitchMkt deployed at:        ", address(factory));
         console.log("Admin:                       ", admin);
         console.log("Stablecoin:                  ", address(stablecoin));

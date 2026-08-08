@@ -7,6 +7,7 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {CarryPool} from "./CarryPool.sol";
+import {Disputes} from "./Disputes.sol";
 import {PrizeConfig} from "./PrizeConfig.sol";
 import {Treasury} from "./Treasury.sol";
 
@@ -55,6 +56,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///         matchweek, shared by every matchweek clone.
     Treasury public immutable TREASURY;
 
+    /// @notice Standalone contract that runs the post-publication dispute window and resolves
+    ///         challenges against published results, shared by every matchweek clone.
+    Disputes public immutable DISPUTES;
+
     uint32 public matchweekId;
     uint40 public predictionDeadline;
     Match[10] private _matches;
@@ -93,6 +98,12 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param matchweekId Unique identifier for this matchweek.
     /// @param outcomes    The ten final outcomes (0=home, 1=draw, 2=away).
     event ResultsPublished(uint32 indexed matchweekId, uint8[10] outcomes);
+
+    /// @notice Emitted when {DISPUTES} applies a correction to the published outcomes after a
+    ///         dispute was confirmed as valid.
+    /// @param matchweekId Unique identifier for this matchweek.
+    /// @param outcomes    The corrected ten outcomes (0=home, 1=draw, 2=away).
+    event ResultsCorrected(uint32 indexed matchweekId, uint8[10] outcomes);
 
     /// @notice Emitted when the admin commits the prize distribution Merkle root.
     /// @param matchweekId Unique identifier for this matchweek.
@@ -158,6 +169,16 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if the constructor is given the zero address as the treasury.
     error InvalidTreasury();
 
+    /// @notice Thrown if the constructor is given the zero address as the disputes contract.
+    error InvalidDisputes();
+
+    /// @notice Thrown if `applyDisputeCorrection` is called by any account other than {DISPUTES}.
+    error NotDisputes();
+
+    /// @notice Thrown if `commitDistribution` is called before {DISPUTES} reports this matchweek
+    ///         as settled (dispute window closed, no unresolved dispute).
+    error DisputeNotSettled();
+
     /// @notice Thrown if `publishResults` is called before the prediction deadline has passed.
     error DeadlineNotPassed();
 
@@ -222,22 +243,36 @@ contract Matchweek is Ownable, ReentrancyGuard {
         _;
     }
 
-    /// @notice Sets the stablecoin, carry pool and treasury shared by every clone and locks the
-    ///         implementation contract so it can never be initialized directly.
+    modifier onlyDisputes() {
+        _onlyDisputes();
+        _;
+    }
+
+    modifier whenDisputeSettled() {
+        _whenDisputeSettled();
+        _;
+    }
+
+    /// @notice Sets the stablecoin, carry pool, treasury and disputes contract shared by every
+    ///         clone and locks the implementation contract so it can never be initialized directly.
     /// @dev Instances are meant to be deployed as EIP-1167 minimal proxy clones of this
     ///      implementation, then initialized via {initialize}. Since clones delegatecall into
-    ///      the implementation's code, STABLECOIN's, CARRY_POOL's and TREASURY's values (baked
-    ///      into that code) are shared by every clone without needing to be set per-instance.
+    ///      the implementation's code, STABLECOIN's, CARRY_POOL's, TREASURY's and DISPUTES's
+    ///      values (baked into that code) are shared by every clone without needing to be set
+    ///      per-instance.
     /// @param stablecoin_ ERC20 token accepted as stake for predictions, for every matchweek clone.
     /// @param carryPool_  Standalone carry pool shared by every matchweek clone.
     /// @param treasury_   Standalone treasury shared by every matchweek clone.
-    constructor(IERC20 stablecoin_, CarryPool carryPool_, Treasury treasury_) Ownable(msg.sender) {
+    /// @param disputes_   Standalone disputes contract shared by every matchweek clone.
+    constructor(IERC20 stablecoin_, CarryPool carryPool_, Treasury treasury_, Disputes disputes_) Ownable(msg.sender) {
         if (address(stablecoin_) == address(0)) revert InvalidStablecoin();
         if (address(carryPool_) == address(0)) revert InvalidCarryPool();
         if (address(treasury_) == address(0)) revert InvalidTreasury();
+        if (address(disputes_) == address(0)) revert InvalidDisputes();
         STABLECOIN = stablecoin_;
         CARRY_POOL = carryPool_;
         TREASURY = treasury_;
+        DISPUTES = disputes_;
         _initialized = true;
     }
 
@@ -298,9 +333,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
         emit PredictionSubmitted(predictionId, msg.sender, matchweekId, predictions, stake);
     }
 
-    /// @notice Publishes the ten final match outcomes on-chain, opening the claim phase.
+    /// @notice Publishes the ten final match outcomes on-chain, opening the dispute window.
     /// @dev Reverts if called before the prediction deadline, if outcomes have already been
-    ///      published, or if any outcome value is not 0, 1, or 2.
+    ///      published, or if any outcome value is not 0, 1, or 2. Opens {DISPUTES}'s dispute
+    ///      window for this matchweek; {commitDistribution} stays blocked until it reports this
+    ///      matchweek as settled.
     /// @param outcomes The ten final outcomes (0=home, 1=draw, 2=away).
     function publishResults(uint8[10] calldata outcomes)
         external
@@ -316,6 +353,22 @@ contract Matchweek is Ownable, ReentrancyGuard {
         resultsPublished = true;
 
         emit ResultsPublished(matchweekId, outcomes);
+
+        DISPUTES.openDisputeWindow();
+    }
+
+    /// @notice Overwrites the published outcomes after {DISPUTES} confirms a dispute as valid.
+    /// @dev Reverts if called by anyone other than {DISPUTES}, or if any outcome value is not
+    ///      0, 1, or 2.
+    /// @param correctedOutcomes The corrected ten outcomes (0=home, 1=draw, 2=away).
+    function applyDisputeCorrection(uint8[10] calldata correctedOutcomes) external onlyDisputes {
+        for (uint256 i = 0; i < MATCH_COUNT; ++i) {
+            if (correctedOutcomes[i] > MAX_OUTCOME) revert InvalidOutcome(i, correctedOutcomes[i]);
+        }
+
+        _outcomes = correctedOutcomes;
+
+        emit ResultsCorrected(matchweekId, correctedOutcomes);
     }
 
     /// @notice Commits the prize distribution as a Merkle root and the per-tier winning stake.
@@ -329,7 +382,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      If tier 10 has winners (a perfect ten), {CARRY_POOL} releases its entire accumulated
     ///      balance to this matchweek first, added on top of that tier's prize pool. {unallocated}
     ///      is then transferred to {CARRY_POOL} regardless, seeding the next carry cycle.
-    ///      Reverts if results have not been published or distribution has already been committed.
+    ///      Reverts if results have not been published, distribution has already been committed,
+    ///      or {DISPUTES} does not yet report this matchweek as settled (dispute window still
+    ///      open, or an open dispute not yet resolved).
     /// @param claimsRoot_        Merkle root over (predictionId, tier) leaves for all winning predictions.
     /// @param totalStakePerTier_ Sum of the winning predictions' stakes per tier (indices 0–4 = tiers
     ///                           6–10), used as the denominator for each winner's proportional
@@ -339,6 +394,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         onlyOwner
         whenResultsPublished
         whenDistributionNotCommitted
+        whenDisputeSettled
     {
         claimsRoot = claimsRoot_;
         totalStakePerTier = totalStakePerTier_;
@@ -464,5 +520,13 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     function _whenDistributionCommitted() internal view {
         if (!distributionCommitted) revert DistributionNotCommitted();
+    }
+
+    function _onlyDisputes() internal view {
+        if (msg.sender != address(DISPUTES)) revert NotDisputes();
+    }
+
+    function _whenDisputeSettled() internal view {
+        if (!DISPUTES.isSettled(address(this))) revert DisputeNotSettled();
     }
 }
