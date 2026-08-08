@@ -5,6 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {CarryPool} from "./CarryPool.sol";
+import {Disputes} from "./Disputes.sol";
 import {Matchweek} from "./Matchweek.sol";
 import {Treasury} from "./Treasury.sol";
 
@@ -23,6 +24,9 @@ contract PitchMkt is Ownable {
 
     /// @notice Standalone treasury shared by every matchweek deployed through this factory.
     Treasury public immutable TREASURY;
+
+    /// @notice Standalone disputes contract shared by every matchweek deployed through this factory.
+    Disputes public immutable DISPUTES;
 
     /// @notice Deployed Matchweek address for a given matchweekId.
     mapping(uint32 matchweekId => address matchweek) public matchweeks;
@@ -44,10 +48,16 @@ contract PitchMkt is Ownable {
     /// @param treasury    Standalone treasury shared by every matchweek deployed through this
     ///                    factory. Its owner must call `treasury.setFactory(address(this))`
     ///                    after this factory is deployed, so it can register new matchweeks.
-    constructor(address admin, IERC20 stablecoin, CarryPool carryPool, Treasury treasury) Ownable(admin) {
+    /// @param disputes    Standalone disputes contract shared by every matchweek deployed through
+    ///                    this factory. Its owner must call `disputes.setFactory(address(this))`
+    ///                    after this factory is deployed, so it can register new matchweeks.
+    constructor(address admin, IERC20 stablecoin, CarryPool carryPool, Treasury treasury, Disputes disputes)
+        Ownable(admin)
+    {
         CARRY_POOL = carryPool;
         TREASURY = treasury;
-        IMPLEMENTATION = address(new Matchweek(stablecoin, carryPool, treasury));
+        DISPUTES = disputes;
+        IMPLEMENTATION = address(new Matchweek(stablecoin, carryPool, treasury, disputes));
     }
 
     /// @notice Deploys and initializes a new Matchweek instance.
@@ -68,6 +78,7 @@ contract PitchMkt is Ownable {
         Matchweek(matchweek).initialize(matchweekId, predictionDeadline, matches, admin);
         CARRY_POOL.registerMatchweek(matchweek);
         TREASURY.registerMatchweek(matchweek);
+        DISPUTES.registerMatchweek(matchweek);
 
         matchweeks[matchweekId] = matchweek;
         deployedMatchweeks.push(matchweek);

@@ -6,6 +6,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {CarryPool} from "../src/CarryPool.sol";
+import {DisputeConfig} from "../src/DisputeConfig.sol";
+import {Disputes} from "../src/Disputes.sol";
 import {Matchweek} from "../src/Matchweek.sol";
 import {PrizeConfig} from "../src/PrizeConfig.sol";
 import {Treasury} from "../src/Treasury.sol";
@@ -22,24 +24,31 @@ contract MatchweekTest is Test {
     ERC20Mock public stablecoin;
     CarryPool public carryPool;
     Treasury public treasury;
+    Disputes public disputes;
 
     function setUp() public {
         _predictionDeadline = uint40(block.timestamp + 1 days);
         stablecoin = new ERC20Mock();
         carryPool = new CarryPool(ADMIN, stablecoin);
         treasury = new Treasury(ADMIN, stablecoin);
-        _implementation = address(new Matchweek(stablecoin, carryPool, treasury));
+        disputes = new Disputes(ADMIN, stablecoin, treasury);
+        _implementation = address(new Matchweek(stablecoin, carryPool, treasury, disputes));
         matchweek = _deployClone();
         matchweek.initialize(MATCHWEEK_ID, _predictionDeadline, _buildValidMatches(), ADMIN);
 
         // This test contract stands in for PitchMkt, the only account allowed to
-        // register matchweeks with the carry pool and the treasury.
+        // register matchweeks with the carry pool, the treasury and the disputes contract.
         vm.prank(ADMIN);
         carryPool.setFactory(address(this));
         carryPool.registerMatchweek(address(matchweek));
         vm.prank(ADMIN);
         treasury.setFactory(address(this));
         treasury.registerMatchweek(address(matchweek));
+        vm.prank(ADMIN);
+        disputes.setFactory(address(this));
+        disputes.registerMatchweek(address(matchweek));
+        vm.prank(ADMIN);
+        treasury.setDisputes(address(disputes));
 
         stablecoin.mint(ALICE, 1_000_000_000);
         vm.prank(ALICE);
@@ -96,17 +105,22 @@ contract MatchweekTest is Test {
 
     function testRevert_stablecoinIsZeroAddress() public {
         vm.expectRevert(Matchweek.InvalidStablecoin.selector);
-        new Matchweek(ERC20Mock(address(0)), carryPool, treasury);
+        new Matchweek(ERC20Mock(address(0)), carryPool, treasury, disputes);
     }
 
     function testRevert_carryPoolIsZeroAddress() public {
         vm.expectRevert(Matchweek.InvalidCarryPool.selector);
-        new Matchweek(stablecoin, CarryPool(address(0)), treasury);
+        new Matchweek(stablecoin, CarryPool(address(0)), treasury, disputes);
     }
 
     function testRevert_treasuryIsZeroAddress() public {
         vm.expectRevert(Matchweek.InvalidTreasury.selector);
-        new Matchweek(stablecoin, carryPool, Treasury(payable(address(0))));
+        new Matchweek(stablecoin, carryPool, Treasury(payable(address(0))), disputes);
+    }
+
+    function testRevert_disputesIsZeroAddress() public {
+        vm.expectRevert(Matchweek.InvalidDisputes.selector);
+        new Matchweek(stablecoin, carryPool, treasury, Disputes(payable(address(0))));
     }
 
     function testRevert_alreadyInitialized() public {
@@ -289,6 +303,14 @@ contract MatchweekTest is Test {
         }
     }
 
+    function test_publishResults_opensDisputeWindow() public {
+        vm.warp(_predictionDeadline);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidPredictions());
+
+        assertEq(disputes.disputeDeadline(address(matchweek)), block.timestamp + DisputeConfig.DISPUTE_WINDOW);
+    }
+
     function testRevert_publishResults_deadlineNotPassed() public {
         vm.expectRevert(Matchweek.DeadlineNotPassed.selector);
         vm.prank(ADMIN);
@@ -323,8 +345,65 @@ contract MatchweekTest is Test {
     }
 
     ////
+    /// Apply Dispute Correction Tests
+    ////
+
+    function test_applyDisputeCorrection_overwritesOutcomes() public {
+        vm.warp(_predictionDeadline);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidPredictions());
+
+        uint8[10] memory corrected = _buildValidPredictions();
+        corrected[0] = corrected[0] == 0 ? uint8(1) : uint8(0);
+
+        vm.expectEmit(true, false, false, true);
+        emit Matchweek.ResultsCorrected(MATCHWEEK_ID, corrected);
+        vm.prank(address(disputes));
+        matchweek.applyDisputeCorrection(corrected);
+
+        uint8[10] memory stored = matchweek.getOutcomes();
+        for (uint256 i = 0; i < 10; ++i) {
+            assertEq(stored[i], corrected[i]);
+        }
+    }
+
+    function testRevert_applyDisputeCorrection_notDisputes() public {
+        vm.warp(_predictionDeadline);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidPredictions());
+
+        vm.expectRevert(Matchweek.NotDisputes.selector);
+        vm.prank(ADMIN);
+        matchweek.applyDisputeCorrection(_buildValidPredictions());
+    }
+
+    function testRevert_applyDisputeCorrection_invalidOutcome() public {
+        vm.warp(_predictionDeadline);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidPredictions());
+
+        uint8[10] memory bad = _buildValidPredictions();
+        bad[2] = 3;
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidOutcome.selector, uint256(2), uint8(3)));
+        vm.prank(address(disputes));
+        matchweek.applyDisputeCorrection(bad);
+    }
+
+    ////
     /// Commit Distribution Tests
     ////
+
+    function testRevert_commitDistribution_disputeWindowOpen() public {
+        vm.warp(_predictionDeadline);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidPredictions());
+
+        // Dispute window still open — no warp past DisputeConfig.DISPUTE_WINDOW.
+        vm.expectRevert(Matchweek.DisputeNotSettled.selector);
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+    }
 
     function test_commitDistribution_prizeComputedOnChain() public {
         uint256 stake = matchweek.MIN_STAKE_AMOUNT();
@@ -669,6 +748,7 @@ contract MatchweekTest is Test {
         matchweek2.initialize(MATCHWEEK_ID + 1, _predictionDeadline, _buildValidMatches(), ADMIN);
         carryPool.registerMatchweek(address(matchweek2));
         treasury.registerMatchweek(address(matchweek2));
+        disputes.registerMatchweek(address(matchweek2));
 
         stablecoin.mint(BOB, 1_000_000_000);
         vm.prank(BOB);
@@ -690,6 +770,7 @@ contract MatchweekTest is Test {
         // top of the normal tier-10 prize.
         vm.prank(ADMIN);
         matchweek2.publishResults(_buildValidPredictions());
+        vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
 
         uint8 tier = 10;
         bytes32 root = _merkleLeaf(predictionId, tier);
@@ -798,11 +879,13 @@ contract MatchweekTest is Test {
     /// Test Helpers
     ////
 
-    /// @dev Warps to the prediction deadline and has the admin publish results.
+    /// @dev Warps to the prediction deadline, has the admin publish results, then warps past the
+    ///      dispute window so the matchweek is settled and {commitDistribution} is unblocked.
     function _publishResults() internal {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
         matchweek.publishResults(_buildValidPredictions());
+        vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
     }
 
     /// @dev Publishes results and commits a single-prediction distribution for the given

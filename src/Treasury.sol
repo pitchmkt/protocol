@@ -27,6 +27,11 @@ contract Treasury is Ownable, ReentrancyGuard {
     /// @dev Settable once by the owner, after both this contract and the factory are deployed.
     address public factory;
 
+    /// @notice Disputes contract allowed to forfeit dispute bonds via {depositForfeitedBond}.
+    /// @dev Settable once by the owner, after both this contract and the disputes contract are
+    ///      deployed.
+    address public disputes;
+
     /// @notice Whether an address is a matchweek authorized to call {deposit}.
     mapping(address matchweek => bool) public isMatchweek;
 
@@ -50,6 +55,10 @@ contract Treasury is Ownable, ReentrancyGuard {
     /// @notice Emitted when the owner sets the factory allowed to register matchweeks.
     /// @param factory Address of the PitchMkt.
     event FactorySet(address indexed factory);
+
+    /// @notice Emitted when the owner sets the disputes contract allowed to forfeit bonds.
+    /// @param disputes Address of the Disputes contract.
+    event DisputesSet(address indexed disputes);
 
     /// @notice Emitted when the factory registers a newly deployed matchweek.
     /// @param matchweek Address of the registered matchweek.
@@ -91,11 +100,17 @@ contract Treasury is Ownable, ReentrancyGuard {
     /// @notice Thrown if {setFactory} is called after the factory has already been set.
     error FactoryAlreadySet();
 
+    /// @notice Thrown if {setDisputes} is called after the disputes contract has already been set.
+    error DisputesAlreadySet();
+
     /// @notice Thrown if {registerMatchweek} is called by any account other than {factory}.
     error NotFactory();
 
     /// @notice Thrown if {deposit} is called by an unregistered address.
     error NotMatchweek();
+
+    /// @notice Thrown if {depositForfeitedBond} is called by any account other than {disputes}.
+    error NotDisputes();
 
     /// @notice Thrown if {withdraw} is given the zero address as the recipient.
     error InvalidRecipient();
@@ -119,6 +134,11 @@ contract Treasury is Ownable, ReentrancyGuard {
 
     modifier onlyMatchweek() {
         _onlyMatchweek();
+        _;
+    }
+
+    modifier onlyDisputes() {
+        _onlyDisputes();
         _;
     }
 
@@ -152,6 +172,15 @@ contract Treasury is Ownable, ReentrancyGuard {
         emit FactorySet(factory_);
     }
 
+    /// @notice Sets the Disputes contract allowed to forfeit bonds via {depositForfeitedBond}.
+    /// @dev Reverts if called by anyone other than the owner, or if already set.
+    /// @param disputes_ Address of the Disputes contract.
+    function setDisputes(address disputes_) external onlyOwner {
+        if (disputes != address(0)) revert DisputesAlreadySet();
+        disputes = disputes_;
+        emit DisputesSet(disputes_);
+    }
+
     /// @notice Registers a newly deployed matchweek, authorizing it to call {deposit}.
     /// @dev Reverts if called by anyone other than {factory}.
     /// @param matchweek Address of the matchweek to register.
@@ -166,6 +195,19 @@ contract Treasury is Ownable, ReentrancyGuard {
     /// @param matchweekId Unique identifier of the depositing matchweek.
     /// @param amount      Amount of stablecoin already transferred to this contract.
     function deposit(uint32 matchweekId, uint256 amount) external onlyMatchweek {
+        collectedByMatchweek[matchweekId] += amount;
+        collectedBalance += amount;
+        emit TreasuryFunded(matchweekId, amount, collectedBalance);
+    }
+
+    /// @notice Records a dispute bond forfeited to the treasury after a rejected dispute.
+    /// @dev Reverts if called by anyone other than {disputes}. The caller must transfer `amount`
+    ///      STABLECOIN to this contract before calling; this function only updates accounting.
+    ///      Kept separate from {deposit} so protocol-fee revenue and forfeited bonds stay
+    ///      distinguishable by call site, even though both are tracked the same way.
+    /// @param matchweekId Unique identifier of the matchweek the forfeited dispute belongs to.
+    /// @param amount      Amount of stablecoin already transferred to this contract.
+    function depositForfeitedBond(uint32 matchweekId, uint256 amount) external onlyDisputes {
         collectedByMatchweek[matchweekId] += amount;
         collectedBalance += amount;
         emit TreasuryFunded(matchweekId, amount, collectedBalance);
@@ -230,5 +272,9 @@ contract Treasury is Ownable, ReentrancyGuard {
 
     function _onlyMatchweek() internal view {
         if (!isMatchweek[msg.sender]) revert NotMatchweek();
+    }
+
+    function _onlyDisputes() internal view {
+        if (msg.sender != disputes) revert NotDisputes();
     }
 }

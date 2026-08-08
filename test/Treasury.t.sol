@@ -16,6 +16,7 @@ contract RejectsNative {
 contract TreasuryTest is Test {
     address constant ADMIN = address(0xAD);
     address constant FACTORY = address(0xFAC);
+    address constant DISPUTES = address(0xD15);
     address constant MATCHWEEK_A = address(0xAAA1);
     address constant MATCHWEEK_B = address(0xAAA2);
     address constant DONOR = address(0xD00);
@@ -80,6 +81,31 @@ contract TreasuryTest is Test {
     }
 
     ////
+    /// setDisputes Tests
+    ////
+
+    function test_setDisputes() public {
+        vm.prank(ADMIN);
+        treasury.setDisputes(DISPUTES);
+        assertEq(treasury.disputes(), DISPUTES);
+    }
+
+    function testRevert_setDisputes_alreadySet() public {
+        vm.prank(ADMIN);
+        treasury.setDisputes(DISPUTES);
+
+        vm.expectRevert(Treasury.DisputesAlreadySet.selector);
+        vm.prank(ADMIN);
+        treasury.setDisputes(STRANGER);
+    }
+
+    function testRevert_setDisputes_notOwner() public {
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, STRANGER));
+        vm.prank(STRANGER);
+        treasury.setDisputes(DISPUTES);
+    }
+
+    ////
     /// deposit Tests
     ////
 
@@ -117,6 +143,41 @@ contract TreasuryTest is Test {
         vm.expectRevert(Treasury.NotMatchweek.selector);
         vm.prank(STRANGER);
         treasury.deposit(MATCHWEEK_ID_A, 100);
+    }
+
+    ////
+    /// depositForfeitedBond Tests
+    ////
+
+    function test_depositForfeitedBond_accumulatesAndTracksPerMatchweek() public {
+        vm.prank(ADMIN);
+        treasury.setDisputes(DISPUTES);
+
+        stablecoin.mint(address(treasury), 100);
+        vm.prank(DISPUTES);
+        treasury.depositForfeitedBond(MATCHWEEK_ID_A, 100);
+
+        assertEq(treasury.collectedBalance(), 100);
+        assertEq(treasury.collectedByMatchweek(MATCHWEEK_ID_A), 100);
+    }
+
+    function test_depositForfeitedBond_emitsTreasuryFunded() public {
+        vm.prank(ADMIN);
+        treasury.setDisputes(DISPUTES);
+
+        vm.expectEmit(true, false, false, true);
+        emit Treasury.TreasuryFunded(MATCHWEEK_ID_A, 100, 100);
+        vm.prank(DISPUTES);
+        treasury.depositForfeitedBond(MATCHWEEK_ID_A, 100);
+    }
+
+    function testRevert_depositForfeitedBond_notDisputes() public {
+        vm.prank(ADMIN);
+        treasury.setDisputes(DISPUTES);
+
+        vm.expectRevert(Treasury.NotDisputes.selector);
+        vm.prank(STRANGER);
+        treasury.depositForfeitedBond(MATCHWEEK_ID_A, 100);
     }
 
     ////
