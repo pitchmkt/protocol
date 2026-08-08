@@ -4,6 +4,7 @@ CONTRACTS = [
     ("Matchweek", "matchweekAbi"),
     ("PitchMkt", "pitchMktAbi"),
     ("Treasury", "treasuryAbi"),
+    ("Disputes", "disputesAbi"),
 ]
 
 OUTPUT_PATH = "/tmp/abis.ts"
