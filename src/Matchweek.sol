@@ -31,10 +31,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
         bytes32 awayTeam;
     }
 
-    /// @notice Minimum stake accepted per prediction: 5 USDC (6 decimals).
-    /// @dev Stake is variable above this floor; each winner's prize share is proportional to
-    ///      what it staked (see {claimPrize}), not split evenly by winner count.
-    uint256 public constant MIN_STAKE_AMOUNT = 5_000_000;
+    /// @notice Price of a single column: 2 USDC (6 decimals).
+    /// @dev A prediction pays this price per column it covers, so what it stakes scales with how
+    ///      many outcome combinations it plays. Each winner's prize share is proportional to what
+    ///      it staked (see {claimPrize}), not split evenly by winner count.
+    uint256 public constant UNIT_PRICE = 2_000_000;
 
     /// @notice Number of matches per matchweek.
     uint256 public constant MATCH_COUNT = 10;
@@ -157,7 +158,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if a predicted outcome is not 0 (home), 1 (draw), or 2 (away).
     error InvalidPredictionValue(uint256 index, uint8 value);
 
-    /// @notice Thrown if a prediction is submitted with a stake below {MIN_STAKE_AMOUNT}.
+    /// @notice Thrown if a prediction is submitted with a stake below {UNIT_PRICE}.
     error StakeTooLow(uint256 provided, uint256 minimum);
 
     /// @notice Thrown if the constructor is given the zero address as the stablecoin.
@@ -303,14 +304,14 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Submits a prediction for this matchweek, staking `stake` stablecoin on it.
-    /// @dev Reverts if the prediction deadline has passed, `stake` is below {MIN_STAKE_AMOUNT}, or
+    /// @dev Reverts if the prediction deadline has passed, `stake` is below {UNIT_PRICE}, or
     ///      any predicted outcome is not 0, 1, or 2. Multiple predictions per address are allowed.
     ///      The full prediction array is not persisted in contract storage — only its hash,
     ///      recoverable from the {PredictionSubmitted} event — so {claimPrize} can verify that
     ///      predictions presented on-chain match what was originally submitted. Pulls `stake` from
     ///      the caller via `transferFrom`, which requires prior `approve`.
     /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
-    /// @param stake       Amount of stablecoin to stake on this prediction, at least {MIN_STAKE_AMOUNT}.
+    /// @param stake       Amount of stablecoin to stake on this prediction, at least {UNIT_PRICE}.
     /// @return predictionId Unique, sequential identifier assigned to this prediction.
     function submitPrediction(uint8[10] calldata predictions, uint256 stake)
         external
@@ -318,7 +319,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         duringPredictionWindow
         returns (uint256 predictionId)
     {
-        if (stake < MIN_STAKE_AMOUNT) revert StakeTooLow(stake, MIN_STAKE_AMOUNT);
+        if (stake < UNIT_PRICE) revert StakeTooLow(stake, UNIT_PRICE);
         for (uint256 i = 0; i < MATCH_COUNT; ++i) {
             if (predictions[i] > MAX_OUTCOME) revert InvalidPredictionValue(i, predictions[i]);
         }
