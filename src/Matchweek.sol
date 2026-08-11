@@ -134,8 +134,15 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param claimant    Address that received the prize.
     /// @param amount      Amount of stablecoin transferred, summed over every tier the prediction
     ///                    reached.
+    /// @param columnsPerTier Columns paid at each tier (indices 0–4 = tiers 6–10), so the payout can
+    ///                       be attributed per tier. {prizePerTier} and {totalStakePerTier} are
+    ///                       immutable once committed, so each tier's amount is recomputable.
     event PrizeClaimed(
-        uint32 indexed matchweekId, uint256 indexed predictionId, address indexed claimant, uint256 amount
+        uint32 indexed matchweekId,
+        uint256 indexed predictionId,
+        address indexed claimant,
+        uint256 amount,
+        uint256[5] columnsPerTier
     );
 
     /// @notice Emitted when a user submits a prediction.
@@ -505,7 +512,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
         claimed[predictionId] = true;
         STABLECOIN.safeTransfer(msg.sender, share);
-        emit PrizeClaimed(matchweekId, predictionId, msg.sender, share);
+        emit PrizeClaimed(matchweekId, predictionId, msg.sender, share, columnsPerTier);
     }
 
     /// @notice Returns all ten match outcomes published by the admin.
