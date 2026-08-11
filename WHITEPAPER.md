@@ -24,9 +24,55 @@ Once all matches are finished, the results are published in an official and veri
 
 ---
 
+## Columns, doubles and triples
+
+The column is the atom of the protocol: the thing that is priced, the thing that is scored and the thing that is paid. Its price is the same for everybody, on every matchday. What varies is how many of them a prediction spans, and that is decided entirely by the shape of its picks.
+
+A pick is one match's worth of a prediction, and it may cover more than one outcome. Covering one outcome is a single, covering two is a **double**, covering three is a **triple**. Ten picks describe every column consistent with them, and their number is simply the product of the outcomes chosen in each match:
+
+```
+columns = 2^doubles × 3^triples
+cost    = unit price × columns
+```
+
+Coverage is therefore bought, not granted. Each additional outcome in a match multiplies the width of the prediction and multiplies its cost by the same factor:
+
+| Doubles | Triples | Columns | Cost |
+|---|---|---|---|
+| 0 | 0 | 1 | 1 unit |
+| 1 | 0 | 2 | 2 units |
+| 0 | 1 | 3 | 3 units |
+| 2 | 0 | 4 | 4 units |
+| 2 | 1 | 12 | 12 units |
+| 4 | 0 | 16 | 16 units |
+| 3 | 2 | 72 | 72 units |
+| 7 | 0 | 128 | 128 units |
+| 10 | 0 | 1,024 | 1,024 units |
+| 0 | 10 | 59,049 | 59,049 units |
+
+This is exactly how the traditional football pool has priced coverage for decades — a double costs double, a triple costs triple, and the bill compounds. PitchMkt reproduces that arithmetic on-chain, with the difference that the cost is derived from the picks at submission rather than quoted by an operator.
+
+### Winning several tiers at once
+
+Because every column is scored on its own, a single prediction can land in more than one tier at the same time.
+
+Take a prediction with nine singles and one double, all nine singles correct, the double covering home win and draw on the tenth match. That prediction spans two columns and cost two units. If the match ends in a draw, one column has all ten outcomes right and the other has nine: the prediction wins the top tier — carry pool included — and tier nine, and claims both.
+
+Width does not always split the result that way. If that same match ends in an away win, neither branch of the double hit: both columns finish with nine correct, both land in tier nine, and both are paid. The double bought two chances at the top tier, not a guarantee of one.
+
+Each claim is made per tier, as described below, so a prediction that reached three tiers claims three times.
+
+### Why there is no cap on columns
+
+A pick is a non-empty choice among home win, draw and away win. There are exactly seven of those — three singles, three doubles and one triple — and the eighth combination, the pick that covers nothing, cannot be expressed at all. Ten picks of at most three outcomes each therefore bound any prediction at `3^10 = 59,049` columns: the widest object the format can describe, and the last row of the table above.
+
+No explicit limit is needed, because the shape of a prediction already imposes one. And well before that ceiling the cost does the rest: the maximum prediction costs 59,049 unit prices, so width is self-limiting long before it becomes a burden on the protocol.
+
+---
+
 ## How prizes are distributed
 
-Every column a prediction spans is scored on its own, and each one lands in exactly one tier according to how many of its ten outcomes proved correct. A prediction spanning several columns can therefore win in several tiers at the same time: when a match covered by two outcomes comes in, one column ends with ten correct and the other with nine, and both are paid.
+Every column a prediction spans is scored on its own, and each one lands in exactly one tier according to how many of its ten outcomes proved correct. A prediction spanning several columns can therefore win in several tiers at the same time, as the worked example above shows.
 
 The prize pool is divided into tiers based on the number of correct outcomes in a column:
 
