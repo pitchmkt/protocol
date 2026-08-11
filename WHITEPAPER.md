@@ -50,7 +50,7 @@ Coverage is therefore bought, not granted. Each additional outcome in a match mu
 | 10 | 0 | 1,024 | 1,024 units |
 | 0 | 10 | 59,049 | 59,049 units |
 
-This is exactly how the traditional football pool has priced coverage for decades — a double costs double, a triple costs triple, and the bill compounds. PitchMkt reproduces that arithmetic on-chain, with the difference that the cost is derived from the picks at submission rather than quoted by an operator.
+The growth is multiplicative, not additive: a double costs double, a triple costs triple, and every extra match a user is unsure about compounds the bill. Width is a deliberate purchase, never a hedge that comes for free. And its price is never quoted or negotiated — it falls out of the picks themselves and is charged on submission.
 
 ### Winning several tiers at once
 
