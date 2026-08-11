@@ -14,6 +14,12 @@ import {Treasury} from "../src/Treasury.sol";
 
 contract MatchweekTest is Test {
     uint32 constant MATCHWEEK_ID = 1;
+
+    // Single-outcome masks: bit0 home, bit1 draw, bit2 away.
+    uint8 constant MASK_HOME = 1;
+    uint8 constant MASK_DRAW = 2;
+    uint8 constant MASK_AWAY = 4;
+
     address constant ADMIN = address(0xAD);
     address constant ALICE = address(0xA11CE);
     address constant BOB = address(0xB0B);
@@ -160,18 +166,19 @@ contract MatchweekTest is Test {
     ////
 
     function test_submitPrediction() public {
-        uint8[10] memory predictions = _buildValidPredictions();
+        uint8[10] memory masks = _buildValidMasks();
         uint256 stake = matchweek.UNIT_PRICE();
 
         vm.expectEmit(true, true, true, true);
-        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions, stake);
+        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, masks, stake);
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(predictions, stake);
+        uint256 predictionId = matchweek.submitPrediction(masks, stake);
 
         assertEq(predictionId, 0);
         assertEq(matchweek.predictionCount(), 1);
         assertEq(matchweek.predictionOwner(0), ALICE);
-        assertEq(matchweek.predictionHash(0), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.predictionHash(0), keccak256(abi.encode(masks)));
+        assertEq(matchweek.predictionColumns(0), 1);
         assertEq(matchweek.predictionStake(0), stake);
         assertEq(matchweek.totalStaked(), stake);
         assertEq(stablecoin.balanceOf(address(matchweek)), stake);
@@ -179,12 +186,12 @@ contract MatchweekTest is Test {
     }
 
     function test_submitPrediction_sameAddressMultiplePredictions() public {
-        uint8[10] memory predictions = _buildValidPredictions();
+        uint8[10] memory masks = _buildValidMasks();
         uint256 stake = matchweek.UNIT_PRICE();
 
         vm.startPrank(ALICE);
-        uint256 first = matchweek.submitPrediction(predictions, stake);
-        uint256 second = matchweek.submitPrediction(predictions, stake);
+        uint256 first = matchweek.submitPrediction(masks, stake);
+        uint256 second = matchweek.submitPrediction(masks, stake);
         vm.stopPrank();
 
         assertEq(first, 0);
@@ -192,8 +199,8 @@ contract MatchweekTest is Test {
         assertEq(matchweek.predictionCount(), 2);
         assertEq(matchweek.predictionOwner(0), ALICE);
         assertEq(matchweek.predictionOwner(1), ALICE);
-        assertEq(matchweek.predictionHash(0), keccak256(abi.encode(predictions)));
-        assertEq(matchweek.predictionHash(1), keccak256(abi.encode(predictions)));
+        assertEq(matchweek.predictionHash(0), keccak256(abi.encode(masks)));
+        assertEq(matchweek.predictionHash(1), keccak256(abi.encode(masks)));
         assertEq(matchweek.totalStaked(), stake * 2);
         assertEq(stablecoin.balanceOf(address(matchweek)), stake * 2);
     }
@@ -202,7 +209,7 @@ contract MatchweekTest is Test {
         uint256 stake = matchweek.UNIT_PRICE() * 3;
 
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         assertEq(matchweek.predictionStake(predictionId), stake);
         assertEq(matchweek.totalStaked(), stake);
@@ -210,14 +217,50 @@ contract MatchweekTest is Test {
         assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - stake);
     }
 
-    function testRevert_submitPrediction_invalidPredictionValue() public {
-        uint8[10] memory predictions = _buildValidPredictions();
-        predictions[3] = 3;
+    function test_submitPrediction_columnsAreTheProductOfPopcounts() public {
+        uint8[10] memory masks = _buildValidMasks();
+        masks[0] = 3; // H,D — double
+        masks[1] = 6; // D,A — double
+        masks[2] = 7; // H,D,A — triple
         uint256 stake = matchweek.UNIT_PRICE();
 
-        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidPredictionValue.selector, uint256(3), uint8(3)));
         vm.prank(ALICE);
-        matchweek.submitPrediction(predictions, stake);
+        uint256 predictionId = matchweek.submitPrediction(masks, stake);
+
+        assertEq(matchweek.predictionColumns(predictionId), 12);
+    }
+
+    function test_submitPrediction_tenTriplesSpanTheFullOutcomeSpace() public {
+        uint8[10] memory masks;
+        for (uint256 i = 0; i < 10; ++i) {
+            masks[i] = 7;
+        }
+        uint256 stake = matchweek.UNIT_PRICE();
+
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(masks, stake);
+
+        assertEq(matchweek.predictionColumns(predictionId), 59_049); // 3**10
+    }
+
+    function testRevert_submitPrediction_maskMarksNothing() public {
+        uint8[10] memory masks = _buildValidMasks();
+        masks[3] = 0;
+        uint256 stake = matchweek.UNIT_PRICE();
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidMask.selector, uint256(3), uint8(0)));
+        vm.prank(ALICE);
+        matchweek.submitPrediction(masks, stake);
+    }
+
+    function testRevert_submitPrediction_maskAboveTriple() public {
+        uint8[10] memory masks = _buildValidMasks();
+        masks[7] = 8; // lowest mask with a bit that maps to no outcome
+        uint256 stake = matchweek.UNIT_PRICE();
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidMask.selector, uint256(7), uint8(8)));
+        vm.prank(ALICE);
+        matchweek.submitPrediction(masks, stake);
     }
 
     function testRevert_submitPrediction_stakeTooLow() public {
@@ -225,7 +268,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.StakeTooLow.selector, tooLow, matchweek.UNIT_PRICE()));
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), tooLow);
+        matchweek.submitPrediction(_buildValidMasks(), tooLow);
     }
 
     function testRevert_submitPrediction_predictionWindowClosed() public {
@@ -234,7 +277,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert(Matchweek.PredictionWindowClosed.selector);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
     }
 
     function testRevert_submitPrediction_insufficientAllowance() public {
@@ -244,7 +287,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
     }
 
     function testRevert_submitPrediction_insufficientBalance() public {
@@ -255,7 +298,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert();
         vm.prank(poor);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
     }
 
     /// @dev Deploys a fresh EIP-1167 minimal proxy clone of the implementation, mirroring how
@@ -264,11 +307,20 @@ contract MatchweekTest is Test {
         return Matchweek(Clones.clone(_implementation));
     }
 
-    /// @dev Builds a valid set of ten predictions (alternating home/draw/away).
-    function _buildValidPredictions() internal pure returns (uint8[10] memory predictions) {
+    /// @dev Builds a valid set of ten outcomes (alternating home/draw/away).
+    function _buildValidOutcomes() internal pure returns (uint8[10] memory outcomes) {
         for (uint256 i = 0; i < 10; ++i) {
             // forge-lint: disable-next-line(unsafe-typecast)
-            predictions[i] = uint8(i % 3);
+            outcomes[i] = uint8(i % 3);
+        }
+    }
+
+    /// @dev Builds ten single masks (alternating home/draw/away) — a one-column prediction that
+    ///      matches {_buildValidOutcomes} outcome for outcome.
+    function _buildValidMasks() internal pure returns (uint8[10] memory masks) {
+        uint8[3] memory singles = [MASK_HOME, MASK_DRAW, MASK_AWAY];
+        for (uint256 i = 0; i < 10; ++i) {
+            masks[i] = singles[i % 3];
         }
     }
 
@@ -288,7 +340,7 @@ contract MatchweekTest is Test {
     ////
 
     function test_publishResults() public {
-        uint8[10] memory outcomes = _buildValidPredictions();
+        uint8[10] memory outcomes = _buildValidOutcomes();
 
         vm.warp(_predictionDeadline);
         vm.expectEmit(true, false, false, true);
@@ -306,7 +358,7 @@ contract MatchweekTest is Test {
     function test_publishResults_opensDisputeWindow() public {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
 
         assertEq(disputes.disputeDeadline(address(matchweek)), block.timestamp + DisputeConfig.DISPUTE_WINDOW);
     }
@@ -314,21 +366,21 @@ contract MatchweekTest is Test {
     function testRevert_publishResults_deadlineNotPassed() public {
         vm.expectRevert(Matchweek.DeadlineNotPassed.selector);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
     }
 
     function testRevert_publishResults_alreadyPublished() public {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
 
         vm.expectRevert(Matchweek.ResultsAlreadyPublished.selector);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
     }
 
     function testRevert_publishResults_invalidOutcome() public {
-        uint8[10] memory bad = _buildValidPredictions();
+        uint8[10] memory bad = _buildValidOutcomes();
         bad[4] = 3;
 
         vm.warp(_predictionDeadline);
@@ -341,7 +393,7 @@ contract MatchweekTest is Test {
         vm.warp(_predictionDeadline);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ALICE));
         vm.prank(ALICE);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
     }
 
     ////
@@ -351,9 +403,9 @@ contract MatchweekTest is Test {
     function test_applyDisputeCorrection_overwritesOutcomes() public {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
 
-        uint8[10] memory corrected = _buildValidPredictions();
+        uint8[10] memory corrected = _buildValidOutcomes();
         corrected[0] = corrected[0] == 0 ? uint8(1) : uint8(0);
 
         vm.expectEmit(true, false, false, true);
@@ -370,19 +422,19 @@ contract MatchweekTest is Test {
     function testRevert_applyDisputeCorrection_notDisputes() public {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
 
         vm.expectRevert(Matchweek.NotDisputes.selector);
         vm.prank(ADMIN);
-        matchweek.applyDisputeCorrection(_buildValidPredictions());
+        matchweek.applyDisputeCorrection(_buildValidOutcomes());
     }
 
     function testRevert_applyDisputeCorrection_invalidOutcome() public {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
 
-        uint8[10] memory bad = _buildValidPredictions();
+        uint8[10] memory bad = _buildValidOutcomes();
         bad[2] = 3;
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidOutcome.selector, uint256(2), uint8(3)));
@@ -397,7 +449,7 @@ contract MatchweekTest is Test {
     function testRevert_commitDistribution_disputeWindowOpen() public {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
 
         // Dispute window still open — no warp past DisputeConfig.DISPUTE_WINDOW.
         vm.expectRevert(Matchweek.DisputeNotSettled.selector);
@@ -408,7 +460,7 @@ contract MatchweekTest is Test {
     function test_commitDistribution_prizeComputedOnChain() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -441,7 +493,7 @@ contract MatchweekTest is Test {
     function test_commitDistribution_emptyTiersGoToUnallocated() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -465,9 +517,9 @@ contract MatchweekTest is Test {
         uint256 aliceStake = matchweek.UNIT_PRICE();
         uint256 bobStake = matchweek.UNIT_PRICE() * 4;
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), aliceStake);
+        matchweek.submitPrediction(_buildValidMasks(), aliceStake);
         vm.prank(BOB);
-        matchweek.submitPrediction(_buildValidPredictions(), bobStake);
+        matchweek.submitPrediction(_buildValidMasks(), bobStake);
 
         assertEq(matchweek.totalStaked(), aliceStake + bobStake);
 
@@ -509,7 +561,7 @@ contract MatchweekTest is Test {
     function test_claimPrize_singleWinner() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -543,9 +595,9 @@ contract MatchweekTest is Test {
 
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
         vm.prank(BOB);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
         _commitTwoPredictionDistribution(0, 1, 8, stake, stake);
@@ -576,9 +628,9 @@ contract MatchweekTest is Test {
         uint256 aliceStake = matchweek.UNIT_PRICE();
         uint256 bobStake = matchweek.UNIT_PRICE() * 2;
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), aliceStake);
+        matchweek.submitPrediction(_buildValidMasks(), aliceStake);
         vm.prank(BOB);
-        matchweek.submitPrediction(_buildValidPredictions(), bobStake);
+        matchweek.submitPrediction(_buildValidMasks(), bobStake);
 
         _publishResults();
         _commitTwoPredictionDistribution(0, 1, 8, aliceStake, bobStake);
@@ -605,7 +657,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_wrongTierProof() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -628,7 +680,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_emptyTierPool() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -647,7 +699,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_distributionNotCommitted() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         vm.expectRevert(Matchweek.DistributionNotCommitted.selector);
         vm.prank(ALICE);
@@ -657,7 +709,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_notPredictionOwner() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -669,7 +721,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_alreadyClaimed() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -684,7 +736,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_invalidTier_tooLow() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -696,7 +748,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_invalidTier_tooHigh() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -708,7 +760,7 @@ contract MatchweekTest is Test {
     function testRevert_claimPrize_invalidProof() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishAndCommitSinglePrediction(predictionId, 7);
 
@@ -725,7 +777,7 @@ contract MatchweekTest is Test {
     function test_commitDistribution_unallocatedFundsCarryPool() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -754,13 +806,13 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         stablecoin.approve(address(matchweek2), type(uint256).max);
         vm.prank(BOB);
-        uint256 predictionId = matchweek2.submitPrediction(_buildValidPredictions(), stake);
+        uint256 predictionId = matchweek2.submitPrediction(_buildValidMasks(), stake);
 
         uint256 fee = stake * PrizeConfig.PROTOCOL_FEE_PCT / 100;
 
         // First matchweek: no winners, its stake net of the fee seeds the carry pool.
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
         _publishResults();
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
@@ -769,7 +821,7 @@ contract MatchweekTest is Test {
         // Second matchweek: Bob hits a perfect ten and should receive the carried balance on
         // top of the normal tier-10 prize.
         vm.prank(ADMIN);
-        matchweek2.publishResults(_buildValidPredictions());
+        matchweek2.publishResults(_buildValidOutcomes());
         vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
 
         uint8 tier = 10;
@@ -801,7 +853,7 @@ contract MatchweekTest is Test {
     function test_commitDistribution_feeGoesToTreasury() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -818,7 +870,7 @@ contract MatchweekTest is Test {
     function test_commitDistribution_carryPoolExcludesFee() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -834,11 +886,11 @@ contract MatchweekTest is Test {
     function test_commitDistribution_reconcilesToTotalStaked() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -864,7 +916,7 @@ contract MatchweekTest is Test {
     function test_commitDistribution_feeNeverExceedsItsPercentage() public {
         uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
-        matchweek.submitPrediction(_buildValidPredictions(), stake);
+        matchweek.submitPrediction(_buildValidMasks(), stake);
 
         _publishResults();
 
@@ -884,7 +936,7 @@ contract MatchweekTest is Test {
     function _publishResults() internal {
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
-        matchweek.publishResults(_buildValidPredictions());
+        matchweek.publishResults(_buildValidOutcomes());
         vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
     }
 
