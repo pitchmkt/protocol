@@ -30,11 +30,11 @@ Every column a prediction spans is scored on its own, and each one lands in exac
 
 The prize pool is divided into tiers based on the number of correct outcomes in a column:
 
-- Ten correct: 40% of the pool
-- Nine correct: 25% of the pool
+- Ten correct: 33% of the pool
+- Nine correct: 15% of the pool
 - Eight correct: 15% of the pool
-- Seven correct: 10% of the pool
-- Six correct: 7% of the pool
+- Seven correct: 15% of the pool
+- Six correct: 19% of the pool
 - Fewer than six correct: no prize
 
 Within a tier, the prize is split proportionally to winning columns: a prediction holding two of the fifty columns that reached a tier takes two fiftieths of it. Since every column costs the same, splitting a tier proportionally to capital and splitting it equally among its winning columns are the same operation.
@@ -59,19 +59,35 @@ The moment a column gets all ten correct, the carry pool is released and added o
 
 ## Squads
 
-Squads are the social heart of PitchMkt. A squad is a group of people who decide to play together, pooling their capital to compete with greater weight in the global prize pool.
+Squads are the social heart of PitchMkt. A squad is a group of people who put their capital behind one leader so that together they can afford a prediction none of them could pay for alone.
 
-The mechanics are straightforward: the squad leader decides the picks for a shared prediction, which all members subscribe to by contributing the same fixed amount. The prediction enters the global pool carrying the combined capital of all members. If it wins, the prize is split proportionally among everyone.
+Width is expensive. Backing two outcomes in seven of the ten matches spans 128 columns, and 128 columns cost 128 times the unit price. That kind of coverage — the kind that survives a surprise result because the alternative outcome was already covered — is simply out of reach on an individual budget.
 
-Because distribution is proportional to capital, a large squad carries more weight than an individual player with the same prediction. This makes it genuinely worthwhile to recruit members: more members means more capital, and more capital means a larger potential prize if the prediction is right.
+The squad solves that by splitting the bill. Before the matchday opens for predictions, members buy into their squad in whole units: each unit is the price of one column, and a member can buy as many as they want. When the buy-in window closes, the leader knows exactly how many columns the squad has to spend and builds the prediction — or the handful of predictions — that spends them. They enter the global pool like anyone else's, at their full derived cost.
+
+Every member owns the fraction of the squad they paid for, and that same fraction of anything it wins. When a squad prediction lands in a tier, the prize is split across members in proportion to their units, minus the leader's commission. Buying in whole units is what keeps this exact: the pot is always a whole number of columns, so it is always spendable to the last one, and no member's share depends on rounding.
+
+### What a member is actually buying
+
+Members commit their capital before they know the picks, and that is the deliberate shape of the thing. What a member buys is not a particular set of outcomes — it is a leader's judgement, and the width that judgement gets to work with. The protocol's job is to make that judgement measurable rather than to hide the risk: every leader carries a public track record of the matchdays they have called, and it is the only thing a member has to go on.
+
+Two rules keep that trust bounded. The leader never holds the money — the pot is held by the protocol and can only ever leave it as a prediction or as a refund. And if the leader fails to submit before the matchday closes, every member is refunded automatically, with no human intervention required.
+
+A squad is also not a way to punch above your weight. The same capital deployed individually earns exactly the same claim on the pool — distribution is proportional to capital, and the protocol does not care whether that capital arrived from one wallet or from forty. What a squad buys is not leverage, it is **affordability of coverage**: access to a breadth of prediction the member's own budget could not reach, in exchange for owning only a fraction of the result.
 
 ### The squad leader's role
 
-The leader is the one who decides the prediction. Their reputation is on the line every matchday. The protocol allows the leader to set a small commission on the prizes their squad earns, visible to all members before they join. This creates a natural market of leaders: those with the best accuracy track record attract more members, and their squads carry more weight in the pool.
+The leader decides the picks and how to spend the squad's width. Their reputation is on the line every matchday. The protocol allows the leader to set a small commission on the prizes their squad earns, visible to all members before they buy in. This creates a natural market of leaders: those with the best track record raise the most, and raising more is what lets them go wider.
 
 This mechanic turns anyone with football knowledge and an audience — content creators, sports journalists, analysts — into a natural squad leader with real economic incentives to recruit members and get the picks right.
 
+### Why the picks need no secrecy
 
+Once submitted, a squad's predictions are as public as everybody else's, and nothing about that hurts the squad. A prediction is not information that can be cheaply duplicated — it is a position that costs what it costs. Replicating a 128-column prediction means paying for 128 columns. Anyone able and willing to put up that capital was never going to be a member, and anyone unwilling gains nothing from reading the picks.
+
+This is why PitchMkt needs no scheme for hiding or committing picks in advance: capital, not concealment, is what protects a squad's work.
+
+---
 
 ## Transparency and dispute resolution
 
@@ -83,7 +99,7 @@ If the administrators do not publish results within the established deadline, th
 
 ## Protocol fees
 
-The protocol applies a 3% fee on every pool, both the global pool and each squad's pool. That fee goes entirely to the operational running of the platform and the future development of the protocol.
+The protocol applies a 3% fee on the matchday pool. Squads have no pool of their own — their prediction competes in the same one as everybody else's — so the fee is charged once and applies identically to individual and squad predictions. That fee goes entirely to the operational running of the platform and the future development of the protocol.
 
 It is the protocol's only cut: charged once, on the pool, with nothing further taken from prizes or from the carry pool — which, as described above, is funded exclusively by unawarded prize money.
 
@@ -100,7 +116,7 @@ The most consistent and accurate players earn a rank that identifies them across
 ## The complete cycle at a glance
 
 1. A matchday opens with ten matches
-2. Players submit predictions individually or through their squad
+2. Players submit their own predictions, or buy units in a squad for its leader to submit
 3. The prize pool grows with every prediction
 4. Once all matches are finished, official results are published
 5. A 48-hour window opens for challenging results

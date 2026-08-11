@@ -16,19 +16,23 @@ library PrizeConfig {
     uint256 internal constant TIER_COUNT = MAX_WINNING_TIER - MIN_WINNING_TIER + 1;
 
     /// @notice Prize percentage of the pool allocated to tier 6 (6/10 correct).
-    uint256 internal constant TIER6_PRIZE_PCT = 7;
+    /// @dev Deliberately larger than the middle tiers. Tier 6 holds by far the most winning
+    ///      columns, so a flat share would leave each one below the price of the column that
+    ///      won it. La Quiniela allocates its lowest category more than its middle ones for
+    ///      the same reason.
+    uint256 internal constant TIER6_PRIZE_PCT = 19;
 
     /// @notice Prize percentage of the pool allocated to tier 7 (7/10 correct).
-    uint256 internal constant TIER7_PRIZE_PCT = 10;
+    uint256 internal constant TIER7_PRIZE_PCT = 15;
 
     /// @notice Prize percentage of the pool allocated to tier 8 (8/10 correct).
     uint256 internal constant TIER8_PRIZE_PCT = 15;
 
     /// @notice Prize percentage of the pool allocated to tier 9 (9/10 correct).
-    uint256 internal constant TIER9_PRIZE_PCT = 25;
+    uint256 internal constant TIER9_PRIZE_PCT = 15;
 
     /// @notice Prize percentage of the pool allocated to tier 10 (10/10 correct).
-    uint256 internal constant TIER10_PRIZE_PCT = 40;
+    uint256 internal constant TIER10_PRIZE_PCT = 33;
 
     /// @notice Percentage of the pool retained by the protocol as a fee.
     /// @dev The tier percentages and this fee are exhaustive:

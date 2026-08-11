@@ -412,7 +412,7 @@ contract MatchweekTest is Test {
 
         _publishResults();
 
-        // Alice is the only winner, in tier 6 (index 0, 7% of pool).
+        // Alice is the only winner, in tier 6 (index 0, TIER6_PRIZE_PCT of pool).
         bytes32 root = _merkleLeaf(0, 6);
         uint256[5] memory totalStakePerTier_;
         totalStakePerTier_[0] = stake;
