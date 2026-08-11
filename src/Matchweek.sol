@@ -43,6 +43,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Upper bound for outcome validation, derived from the {Outcome} enum.
     uint8 private constant MAX_OUTCOME = uint8(type(Outcome).max);
 
+    /// @dev Mask validation bounds: at least one {Outcome} bit set (a single), at most all three
+    ///      (a triple). A mask of 0 marks nothing, and above 7 a bit maps to no outcome.
+    uint8 private constant MIN_MASK = 1;
+    uint8 private constant MAX_MASK = 7;
+
     /// @dev Index into the tier arrays for the perfect-ten tier (tier 10 → index 4).
     uint256 private constant TIER10_INDEX = PrizeConfig.TIER_COUNT - 1;
 
@@ -68,6 +73,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     uint256 public predictionCount;
     mapping(uint256 predictionId => address user) public predictionOwner;
     mapping(uint256 predictionId => bytes32 hash) public predictionHash;
+    /// @notice Number of columns a prediction spans: the product of its ten masks' popcounts.
+    mapping(uint256 predictionId => uint256 columns) public predictionColumns;
     mapping(uint256 predictionId => uint256 stake) public predictionStake;
     /// @notice Sum of every prediction's stake in this matchweek.
     uint256 public totalStaked;
@@ -133,7 +140,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param predictionId     Unique, sequential identifier for this prediction within the matchweek.
     /// @param user        Address that submitted the prediction.
     /// @param matchweekId Unique identifier for this matchweek.
-    /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
+    /// @param predictions The ten submitted masks (bit0=home, bit1=draw, bit2=away).
     /// @param stake       Amount of stablecoin staked on this prediction.
     event PredictionSubmitted(
         uint256 indexed predictionId,
@@ -155,8 +162,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if a prediction is submitted after the prediction deadline has passed.
     error PredictionWindowClosed();
 
-    /// @notice Thrown if a predicted outcome is not 0 (home), 1 (draw), or 2 (away).
-    error InvalidPredictionValue(uint256 index, uint8 value);
+    /// @notice Thrown if a pick mask is outside the valid range 1–7.
+    error InvalidMask(uint256 index, uint8 mask);
 
     /// @notice Thrown if a prediction is submitted with a stake below {UNIT_PRICE}.
     error StakeTooLow(uint256 provided, uint256 minimum);
@@ -304,34 +311,42 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Submits a prediction for this matchweek, staking `stake` stablecoin on it.
-    /// @dev Reverts if the prediction deadline has passed, `stake` is below {UNIT_PRICE}, or
-    ///      any predicted outcome is not 0, 1, or 2. Multiple predictions per address are allowed.
-    ///      The full prediction array is not persisted in contract storage — only its hash,
+    /// @dev Reverts if the prediction deadline has passed, `stake` is below {UNIT_PRICE}, or any
+    ///      mask is outside 1–7. Multiple predictions per address are allowed. Columns multiply
+    ///      rather than add, so the prediction spans the product of its masks' popcounts —
+    ///      uncapped, since ten masks of at most three bits bound it at `3**10 = 59,049`.
+    ///      The full mask array is not persisted in contract storage — only its hash,
     ///      recoverable from the {PredictionSubmitted} event — so {claimPrize} can verify that
     ///      predictions presented on-chain match what was originally submitted. Pulls `stake` from
     ///      the caller via `transferFrom`, which requires prior `approve`.
-    /// @param predictions The ten predicted outcomes (0=home, 1=draw, 2=away).
-    /// @param stake       Amount of stablecoin to stake on this prediction, at least {UNIT_PRICE}.
+    /// @param masks Ten pick masks, one per match: bit0 home, bit1 draw, bit2 away, so a single is
+    ///              1, 2 or 4, a double 3, 5 or 6, and a triple 7.
+    /// @param stake Amount of stablecoin to stake on this prediction, at least {UNIT_PRICE}.
     /// @return predictionId Unique, sequential identifier assigned to this prediction.
-    function submitPrediction(uint8[10] calldata predictions, uint256 stake)
+    function submitPrediction(uint8[10] calldata masks, uint256 stake)
         external
         nonReentrant
         duringPredictionWindow
         returns (uint256 predictionId)
     {
         if (stake < UNIT_PRICE) revert StakeTooLow(stake, UNIT_PRICE);
+
+        uint256 columns = 1;
         for (uint256 i = 0; i < MATCH_COUNT; ++i) {
-            if (predictions[i] > MAX_OUTCOME) revert InvalidPredictionValue(i, predictions[i]);
+            uint8 mask = masks[i];
+            if (mask < MIN_MASK || mask > MAX_MASK) revert InvalidMask(i, mask);
+            columns *= _popcount(mask);
         }
 
         predictionId = predictionCount++;
         predictionOwner[predictionId] = msg.sender;
-        predictionHash[predictionId] = keccak256(abi.encode(predictions));
+        predictionHash[predictionId] = keccak256(abi.encode(masks));
+        predictionColumns[predictionId] = columns;
         predictionStake[predictionId] = stake;
         totalStaked += stake;
 
         STABLECOIN.safeTransferFrom(msg.sender, address(this), stake);
-        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, predictions, stake);
+        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, masks, stake);
     }
 
     /// @notice Publishes the ten final match outcomes on-chain, opening the dispute window.
@@ -529,5 +544,12 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     function _whenDisputeSettled() internal view {
         if (!DISPUTES.isSettled(address(this))) revert DisputeNotSettled();
+    }
+
+    /// @dev Counts only the three {Outcome} bits, which is exact for masks validated to 1–7.
+    function _popcount(uint8 mask) internal pure returns (uint256 count) {
+        if (mask & 1 != 0) ++count; // home
+        if (mask & 2 != 0) ++count; // draw
+        if (mask & 4 != 0) ++count; // away
     }
 }

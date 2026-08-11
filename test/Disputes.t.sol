@@ -231,7 +231,7 @@ contract DisputesTest is Test {
     function test_confirmDispute_correctsOutcomesAndRefundsBond() public {
         _publishAndDispute();
 
-        uint8[10] memory corrected = _buildValidPredictions();
+        uint8[10] memory corrected = _buildValidOutcomes();
         corrected[0] = corrected[0] == 0 ? uint8(1) : uint8(0);
         uint256 challengerBalanceBefore = stablecoin.balanceOf(CHALLENGER);
 
@@ -255,17 +255,17 @@ contract DisputesTest is Test {
     function testRevert_confirmDispute_noActiveDispute() public {
         vm.expectRevert(Disputes.NoActiveDispute.selector);
         vm.prank(ADMIN);
-        disputes.confirmDispute(address(matchweek), _buildValidPredictions());
+        disputes.confirmDispute(address(matchweek), _buildValidOutcomes());
     }
 
     function testRevert_confirmDispute_alreadyResolved() public {
         _publishAndDispute();
         vm.prank(ADMIN);
-        disputes.confirmDispute(address(matchweek), _buildValidPredictions());
+        disputes.confirmDispute(address(matchweek), _buildValidOutcomes());
 
         vm.expectRevert(Disputes.DisputeAlreadyResolved.selector);
         vm.prank(ADMIN);
-        disputes.confirmDispute(address(matchweek), _buildValidPredictions());
+        disputes.confirmDispute(address(matchweek), _buildValidOutcomes());
     }
 
     function testRevert_confirmDispute_notOwner() public {
@@ -273,7 +273,7 @@ contract DisputesTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, STRANGER));
         vm.prank(STRANGER);
-        disputes.confirmDispute(address(matchweek), _buildValidPredictions());
+        disputes.confirmDispute(address(matchweek), _buildValidOutcomes());
     }
 
     ////
@@ -330,7 +330,7 @@ contract DisputesTest is Test {
     /// @dev Publishes results on {matchweek} and has {CHALLENGER} dispute them.
     /// @return original The published outcomes, for asserting they stand after a rejected dispute.
     function _publishAndDispute() internal returns (uint8[10] memory original) {
-        original = _buildValidPredictions();
+        original = _buildValidOutcomes();
         vm.warp(_predictionDeadline);
         vm.prank(ADMIN);
         matchweek.publishResults(original);
@@ -351,7 +351,7 @@ contract DisputesTest is Test {
     }
 
     /// @dev Builds a valid set of ten outcomes (alternating home/draw/away).
-    function _buildValidPredictions() internal pure returns (uint8[10] memory predictions) {
+    function _buildValidOutcomes() internal pure returns (uint8[10] memory predictions) {
         for (uint256 i = 0; i < 10; ++i) {
             // forge-lint: disable-next-line(unsafe-typecast)
             predictions[i] = uint8(i % 3);
