@@ -4,7 +4,7 @@
 
 ## What is PitchMkt
 
-PitchMkt is a decentralised sports prediction platform where users predict the outcome of every match in a football matchday and compete for a shared prize pool. Unlike traditional prediction markets, prizes are distributed proportionally to the capital staked, rewarding both accuracy and conviction.
+PitchMkt is a decentralised sports prediction platform where users predict the outcome of every match in a football matchday and compete for a shared prize pool. Players who are unsure about a match can back two or even three of its outcomes, and the protocol prices that coverage exactly.
 
 The protocol is designed to be transparent, intermediary-free and open to anyone with internet access and a digital wallet.
 
@@ -12,9 +12,13 @@ The protocol is designed to be transparent, intermediary-free and open to anyone
 
 ## How a matchday works
 
-Every weekend a new matchday opens with ten matches drawn from a curated selection of the top European football leagues. Users have until fifteen minutes before the first kick-off to submit their prediction: for each match they choose whether the home team wins, the match ends in a draw, or the away team wins.
+Every weekend a new matchday opens with ten matches drawn from a curated selection of the top European football leagues. Users have until fifteen minutes before the first kick-off to submit their prediction: for each match they select one or more outcomes — the home team wins, the match ends in a draw, or the away team wins.
 
-Each prediction has a fixed entry fee paid in stablecoins. Users can submit as many predictions as they want, paying the entry fee for each one separately. All entries accumulate into a shared prize pool.
+Selecting a single outcome in every match produces one **column**: a complete combination of ten outcomes, one per match. Selecting two or three outcomes in a match does not create a second prediction, it widens the one being made — the prediction then spans every column consistent with those selections. A prediction that backs two outcomes in one match and a single outcome in the other nine spans two columns.
+
+The column is the unit the protocol prices and pays. One column costs a fixed amount in stablecoins, so the cost of a prediction is that unit price multiplied by the number of columns it spans. Nobody chooses how much to stake: the cost is derived from the picks themselves and charged on submission.
+
+A prediction is unique however many columns it spans, and there is no way to buy the same one twice. A user who wants more exposure submits another prediction. Every prediction submitted accumulates into a shared prize pool.
 
 Once all matches are finished, the results are published in an official and verifiable way. After a 48-hour window during which any participant can challenge a result they believe is incorrect, the prize pool is distributed automatically among the winners.
 
@@ -22,9 +26,9 @@ Once all matches are finished, the results are published in an official and veri
 
 ## How prizes are distributed
 
-Distribution is proportional to the capital staked. This means that not every winner within the same accuracy tier receives the same amount: whoever has staked more receives a larger share of that tier's prize. This sets PitchMkt apart from a classic football pool where all winners in a tier receive equal payouts regardless of their stake.
+Every column a prediction spans is scored on its own, and each one lands in exactly one tier according to how many of its ten outcomes proved correct. A prediction spanning several columns can therefore win in several tiers at the same time: when a match covered by two outcomes comes in, one column ends with ten correct and the other with nine, and both are paid.
 
-The prize pool is divided into tiers based on the number of correct predictions:
+The prize pool is divided into tiers based on the number of correct outcomes in a column:
 
 - Ten correct: 40% of the pool
 - Nine correct: 25% of the pool
@@ -33,17 +37,23 @@ The prize pool is divided into tiers based on the number of correct predictions:
 - Six correct: 7% of the pool
 - Fewer than six correct: no prize
 
-If a tier has no winners, its percentage is split between the nearest higher tier that has winners and the carry pool.
+Within a tier, the prize is split proportionally to winning columns: a prediction holding two of the fifty columns that reached a tier takes two fiftieths of it. Since every column costs the same, splitting a tier proportionally to capital and splitting it equally among its winning columns are the same operation.
 
-Winners have thirty days to claim their prize. Anything unclaimed after that period is automatically added to the carry pool.
+If a tier has no winners, its entire percentage goes to the carry pool. It is never redistributed to the tiers that did have winners, so no player's prize grows because someone else's tier was left empty.
+
+Prizes are claimed per tier, not per prediction: a prediction that won in three tiers claims each of them separately. Winners have thirty days to claim. Anything unclaimed after that period is automatically added to the carry pool.
 
 ---
 
 ## The carry pool
 
-The carry pool is the protocol's most powerful incentive. It grows matchday after matchday whenever nobody gets all ten predictions right. The longer it goes without a perfect winner, the bigger it gets, generating anticipation and attracting new participants.
+The carry pool is the protocol's most powerful incentive: a balance that accumulates across matchdays and can only ever be won outright.
 
-The moment someone gets all ten correct, the carry pool is released and added on top of the top tier prize. There is no shortcut: the carry pool can only be won by a perfect prediction.
+It is funded entirely by prize money that was never awarded, from two sources: the percentage of any tier that no column reached, and any prize a winner fails to collect within the thirty-day claim window. Nothing else feeds it; in particular, the protocol fee does not. This is what keeps the carry pool honest — it is built from unawarded prizes, never from money taken out of players' pockets.
+
+Because a tier is left empty far more often than a perfect ten is hit, the pool grows matchday after matchday. The longer it goes without a perfect winner, the bigger it gets, generating anticipation and attracting new participants.
+
+The moment a column gets all ten correct, the carry pool is released and added on top of the top tier prize. There is no shortcut: the carry pool can only be won by a column with all ten outcomes right. Whatever that same matchday leaves unawarded then seeds the next cycle.
 
 ---
 
@@ -75,7 +85,7 @@ If the administrators do not publish results within the established deadline, th
 
 The protocol applies a 3% fee on every pool, both the global pool and each squad's pool. That fee goes entirely to the operational running of the platform and the future development of the protocol.
 
-The carry pool is not funded by protocol fees. It grows naturally from two sources: the percentage of any prize tier that goes unclaimed because no player reached that accuracy level, and any prizes that winners fail to collect within the thirty-day claim window. This keeps the carry pool honest — it is built entirely from unawarded prize money, not from fees taken out of players' pockets.
+It is the protocol's only cut: charged once, on the pool, with nothing further taken from prizes or from the carry pool — which, as described above, is funded exclusively by unawarded prize money.
 
 ---
 
@@ -83,7 +93,7 @@ The carry pool is not funded by protocol fees. It grows naturally from two sourc
 
 Every participant builds a public record of their activity: matchdays played, total correct predictions, best matchday, active streak and historical earnings. This record is visible to anyone, allowing members to choose which squad to join based on their leader's track record.
 
-The most consistent and accurate players earn reputation tiers that identify them across the platform, ranging from rookie to iconic.
+The most consistent and accurate players earn a rank that identifies them across the platform, ranging from rookie to iconic.
 
 ---
 
@@ -91,9 +101,9 @@ The most consistent and accurate players earn reputation tiers that identify the
 
 1. A matchday opens with ten matches
 2. Players submit predictions individually or through their squad
-3. The prize pool grows with every entry
+3. The prize pool grows with every prediction
 4. Once all matches are finished, official results are published
 5. A 48-hour window opens for challenging results
-6. The pool is distributed automatically based on accuracy and capital staked
-7. Winners claim their prize within thirty days
+6. The pool is distributed automatically among the winning columns in each tier
+7. Winners claim each tier they won within thirty days
 8. Anything unclaimed feeds the carry pool for the next matchday
