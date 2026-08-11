@@ -33,8 +33,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Price of a single column: 2 USDC (6 decimals).
     /// @dev A prediction pays this price per column it covers, so its cost scales with how many
-    ///      outcome combinations it plays. Each winner's prize share is proportional to what it
-    ///      paid (see {claimPrize}), not split evenly by winner count.
+    ///      outcome combinations it plays. Each winner's prize share is proportional to what its
+    ///      winning columns cost (see {claimPrize}), not split evenly by winner count.
     uint256 public constant UNIT_PRICE = 2_000_000;
 
     /// @notice Number of matches per matchweek.
@@ -83,7 +83,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     bytes32 public claimsRoot;
     /// @dev Tiers 6–10 are stored at indices 0–4 (index = tier - {PrizeConfig.MIN_WINNING_TIER}).
-    ///      totalStakePerTier is the denominator for each winning prediction's proportional share.
+    ///      totalStakePerTier is the denominator for each winning prediction's proportional share:
+    ///      the sum of the columns that reached the tier, priced at {UNIT_PRICE}.
     uint256[5] public totalStakePerTier;
     uint256[5] public prizePerTier;
     /// @dev Transferred to {CARRY_POOL} at the end of {commitDistribution}.
@@ -114,7 +115,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Emitted when the admin commits the prize distribution Merkle root.
     /// @param matchweekId Unique identifier for this matchweek.
-    /// @param claimsRoot  Merkle root over (predictionId, tier) leaves for all winning predictions.
+    /// @param claimsRoot  Merkle root over (predictionId, columnsPerTier) leaves, one per winning
+    ///                    prediction.
     /// @param prizePerTier Prize pool allocated to each tier (indices 0–4 = tiers 6–10).
     /// @param unallocated  Pool amount from tiers with no winners, carried to the carry pool.
     /// @param protocolFee  Fee retained by the protocol and sent to the treasury.
@@ -130,7 +132,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param matchweekId Unique identifier for this matchweek.
     /// @param predictionId     The prediction for which the prize is claimed.
     /// @param claimant    Address that received the prize.
-    /// @param amount      Amount of stablecoin transferred.
+    /// @param amount      Amount of stablecoin transferred, summed over every tier the prediction
+    ///                    reached.
     event PrizeClaimed(
         uint32 indexed matchweekId, uint256 indexed predictionId, address indexed claimant, uint256 amount
     );
@@ -201,16 +204,15 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if `claimPrize` is called before distribution has been committed.
     error DistributionNotCommitted();
 
-    /// @notice Thrown if a tier value in `claimPrize` is outside the valid range 6–10.
-    error InvalidTier(uint8 tier);
-
     /// @notice Thrown if the Merkle proof in `claimPrize` does not verify against {claimsRoot}.
-    error InvalidProof(uint256 predictionId, uint8 tier);
+    error InvalidProof(uint256 predictionId);
 
     /// @notice Thrown if `claimPrize` is called by an address that does not own the prediction.
     error NotPredictionOwner(uint256 predictionId);
 
     /// @notice Thrown if `claimPrize` is called for a prediction that has already been claimed.
+    /// @dev A claim covers every tier the prediction reached, so there is nothing left to claim
+    ///      afterwards.
     error AlreadyClaimed(uint256 predictionId);
 
     /// @notice Thrown if `claimPrize` is called for a tier with zero winners.
@@ -383,7 +385,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Commits the prize distribution as a Merkle root and the per-tier winning stake.
-    /// @dev Each Merkle leaf is `keccak256(abi.encode(predictionId, tier))`.
+    /// @dev Each Merkle leaf is `keccak256(abi.encode(predictionId, columnsPerTier))` — one leaf
+    ///      per winning prediction, carrying how many of its columns reached each tier.
     ///      Tiers 6–10 map to indices 0–4 (`index = tier - 6`).
     ///      Prize pools are computed on-chain from {PrizeConfig} percentages and {totalStaked}:
     ///      tiers with no winners contribute their percentage to {unallocated} instead.
@@ -396,10 +399,12 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      Reverts if results have not been published, distribution has already been committed,
     ///      or {DISPUTES} does not yet report this matchweek as settled (dispute window still
     ///      open, or an open dispute not yet resolved).
-    /// @param claimsRoot_        Merkle root over (predictionId, tier) leaves for all winning predictions.
-    /// @param totalStakePerTier_ Sum of the winning predictions' stakes per tier (indices 0–4 = tiers
-    ///                           6–10), used as the denominator for each winner's proportional
-    ///                           share in {claimPrize}. Zero means no winners in that tier.
+    /// @param claimsRoot_        Merkle root over (predictionId, columnsPerTier) leaves, one per
+    ///                           winning prediction.
+    /// @param totalStakePerTier_ Sum of the winning columns per tier priced at {UNIT_PRICE}
+    ///                           (indices 0–4 = tiers 6–10), used as the denominator for each
+    ///                           winner's proportional share in {claimPrize}. Zero means no
+    ///                           winners in that tier.
     function commitDistribution(bytes32 claimsRoot_, uint256[5] calldata totalStakePerTier_)
         external
         onlyOwner
@@ -454,42 +459,49 @@ contract Matchweek is Ownable, ReentrancyGuard {
         emit DistributionCommitted(matchweekId, claimsRoot_, prizePerTier, unallocated, fee);
     }
 
-    /// @notice Claims the prize for a winning prediction by providing a Merkle proof.
+    /// @notice Claims every prize a prediction won, across all tiers, in a single call.
     /// @dev Reverts if distribution has not been committed, the caller is not the prediction
-    ///      owner, the prediction has already been claimed, the tier is out of range 6–10,
-    ///      or the Merkle proof is invalid. Prize share is proportional to what this prediction
-    ///      cost relative to the tier's total: `prizePerTier[tier] * predictionCost(predictionId)
-    ///      / totalStakePerTier[tier]`, so a prediction covering more columns earns proportionally
-    ///      more of the tier it wins.
-    /// @param predictionId Unique identifier of the prediction to claim.
-    /// @param tier    Number of correct picks for this prediction (6–10).
-    /// @param proof   Merkle proof that `(predictionId, tier)` is included in {claimsRoot}.
-    function claimPrize(uint256 predictionId, uint8 tier, bytes32[] calldata proof)
+    ///      owner, the prediction has already been claimed, or the Merkle proof is invalid.
+    ///      A prediction playing multiples reaches several tiers at once — one column may hit ten
+    ///      while another hits nine — so the leaf carries the whole per-tier vector and the payout
+    ///      is the sum over tiers of `prizePerTier[i] * columnsPerTier[i] * UNIT_PRICE
+    ///      / totalStakePerTier[i]`. The vector needs no validation of its own: only the one
+    ///      committed in {claimsRoot} verifies.
+    /// @param predictionId    Unique identifier of the prediction to claim.
+    /// @param columnsPerTier  How many of this prediction's columns reached each tier
+    ///                        (indices 0–4 = tiers 6–10). Zero for tiers it did not reach.
+    /// @param proof           Merkle proof that `(predictionId, columnsPerTier)` is included in
+    ///                        {claimsRoot}.
+    function claimPrize(uint256 predictionId, uint256[5] calldata columnsPerTier, bytes32[] calldata proof)
         external
         nonReentrant
         whenDistributionCommitted
     {
         if (msg.sender != predictionOwner[predictionId]) revert NotPredictionOwner(predictionId);
         if (claimed[predictionId]) revert AlreadyClaimed(predictionId);
-        if (tier < PrizeConfig.MIN_WINNING_TIER || tier > PrizeConfig.MAX_WINNING_TIER) revert InvalidTier(tier);
 
-        // Double-hash the leaf: abi.encode produces 64 bytes (uint256 + uint8 padded),
-        // which is the same length as an internal Merkle node. Double-hashing separates
-        // the two domains and prevents second-preimage attacks.
+        // Double-hash the leaf to separate it from the internal Merkle node domain, which
+        // prevents second-preimage attacks. The pre-image is the predictionId followed by the
+        // five column counts, which is exactly abi.encode's layout for them.
         bytes32 leaf;
         assembly ("memory-safe") {
             let ptr := mload(0x40)
             mstore(ptr, predictionId)
-            mstore(add(ptr, 0x20), tier)
-            mstore(ptr, keccak256(ptr, 0x40))
+            calldatacopy(add(ptr, 0x20), columnsPerTier, 0xa0)
+            mstore(ptr, keccak256(ptr, 0xc0))
             leaf := keccak256(ptr, 0x20)
         }
-        if (!MerkleProof.verify(proof, claimsRoot, leaf)) revert InvalidProof(predictionId, tier);
+        if (!MerkleProof.verify(proof, claimsRoot, leaf)) revert InvalidProof(predictionId);
 
-        uint256 idx = tier - PrizeConfig.MIN_WINNING_TIER;
-        if (totalStakePerTier[idx] == 0) revert EmptyTierPool(tier);
-
-        uint256 share = prizePerTier[idx] * predictionCost(predictionId) / totalStakePerTier[idx];
+        uint256 share;
+        for (uint8 tier = PrizeConfig.MIN_WINNING_TIER; tier <= PrizeConfig.MAX_WINNING_TIER; ++tier) {
+            uint256 idx = tier - PrizeConfig.MIN_WINNING_TIER;
+            uint256 columns = columnsPerTier[idx];
+            if (columns == 0) continue;
+            uint256 tierStake = totalStakePerTier[idx];
+            if (tierStake == 0) revert EmptyTierPool(tier);
+            share += prizePerTier[idx] * (columns * UNIT_PRICE) / tierStake;
+        }
 
         claimed[predictionId] = true;
         STABLECOIN.safeTransfer(msg.sender, share);
