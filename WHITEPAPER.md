@@ -14,9 +14,7 @@ The protocol is designed to be transparent, intermediary-free and open to anyone
 
 Every weekend a new matchday opens with ten matches drawn from a curated selection of the top European football leagues. Users have until fifteen minutes before the first kick-off to submit their prediction: for each match they select one or more outcomes — the home team wins, the match ends in a draw, or the away team wins.
 
-Selecting a single outcome in every match produces one **column**: a complete combination of ten outcomes, one per match. Selecting two or three outcomes in a match does not create a second prediction, it widens the one being made — the prediction then spans every column consistent with those selections. A prediction that backs two outcomes in one match and a single outcome in the other nine spans two columns.
-
-The column is the unit the protocol prices and pays. One column costs a fixed amount in stablecoins, so the cost of a prediction is that unit price multiplied by the number of columns it spans. Nobody chooses how much to stake: the cost is derived from the picks themselves and charged on submission.
+Selecting a single outcome in every match produces one **column**: a complete combination of ten outcomes, one per match. Selecting two or three outcomes in a match does not create a second prediction, it widens the one being made. That width is what the protocol charges for, and the next section sets out exactly how it is counted and priced.
 
 A prediction is unique however many columns it spans, and there is no way to buy the same one twice. A user who wants more exposure submits another prediction. Every prediction submitted accumulates into a shared prize pool.
 
@@ -26,7 +24,7 @@ Once all matches are finished, the results are published in an official and veri
 
 ## Columns, doubles and triples
 
-The column is the atom of the protocol: the thing that is priced, the thing that is scored and the thing that is paid. Its price is the same for everybody, on every matchday. What varies is how many of them a prediction spans, and that is decided entirely by the shape of its picks.
+The column is the atom of the protocol: the thing that is priced, the thing that is scored and the thing that is paid. Its price is a fixed amount of stablecoins, the same for everybody on every matchday. What varies is how many columns a prediction spans, and that is decided entirely by the shape of its picks.
 
 A pick is one match's worth of a prediction, and it may cover more than one outcome. Covering one outcome is a single, covering two is a **double**, covering three is a **triple**. Ten picks describe every column consistent with them, and their number is simply the product of the outcomes chosen in each match:
 
@@ -54,13 +52,11 @@ The growth is multiplicative, not additive: a double costs double, a triple cost
 
 ### Winning several tiers at once
 
-Because every column is scored on its own, a single prediction can land in more than one tier at the same time.
+Every column a prediction spans is scored on its own and lands in exactly one prize tier, set by how many of its ten outcomes proved correct — the scale of tiers and what each pays is in the next section. One prediction can therefore end the matchday in several tiers at the same time.
 
 Take a prediction with nine singles and one double, all nine singles correct, the double covering home win and draw on the tenth match. That prediction spans two columns and cost two units. If the match ends in a draw, one column has all ten outcomes right and the other has nine: the prediction wins the top tier — carry pool included — and tier nine, and claims both.
 
 Width does not always split the result that way. If that same match ends in an away win, neither branch of the double hit: both columns finish with nine correct, both land in tier nine, and both are paid. The double bought two chances at the top tier, not a guarantee of one.
-
-Each claim is made per tier, as described below, so a prediction that reached three tiers claims three times.
 
 ### Why there is no cap on columns
 
@@ -71,8 +67,6 @@ No explicit limit is needed, because the shape of a prediction already imposes o
 ---
 
 ## How prizes are distributed
-
-Every column a prediction spans is scored on its own, and each one lands in exactly one tier according to how many of its ten outcomes proved correct. A prediction spanning several columns can therefore win in several tiers at the same time, as the worked example above shows.
 
 The prize pool is divided into tiers based on the number of correct outcomes in a column:
 
@@ -95,7 +89,7 @@ Prizes are claimed per tier, not per prediction: a prediction that won in three 
 
 The carry pool is the protocol's most powerful incentive: a balance that accumulates across matchdays and can only ever be won outright.
 
-It is funded entirely by prize money that was never awarded, from two sources: the percentage of any tier that no column reached, and any prize a winner fails to collect within the thirty-day claim window. Nothing else feeds it; in particular, the protocol fee does not. This is what keeps the carry pool honest — it is built from unawarded prizes, never from money taken out of players' pockets.
+It is funded entirely by prize money that was never awarded — the empty tiers and the uncollected prizes described above, and nothing else. The protocol fee, in particular, does not feed it. This is what keeps the carry pool honest: it is built from prizes nobody took, never from money taken out of players' pockets.
 
 Because a tier is left empty far more often than a perfect ten is hit, the pool grows matchday after matchday. The longer it goes without a perfect winner, the bigger it gets, generating anticipation and attracting new participants.
 
@@ -153,7 +147,7 @@ It is the protocol's only cut: charged once, on the pool, with nothing further t
 
 ## Player reputation
 
-Every participant builds a public record of their activity: matchdays played, total correct predictions, best matchday, active streak and historical earnings. This record is visible to anyone, allowing members to choose which squad to join based on their leader's track record.
+Every participant builds a public record of their activity: matchdays played, total correct predictions, best matchday, active streak and historical earnings. It is visible to anyone, and it is built from what the participant actually did on-chain, so it can be neither curated nor claimed.
 
 The most consistent and accurate players earn a rank that identifies them across the platform, ranging from rookie to iconic.
 
