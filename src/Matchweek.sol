@@ -32,9 +32,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Price of a single column: 2 USDC (6 decimals).
-    /// @dev A prediction pays this price per column it covers, so what it stakes scales with how
-    ///      many outcome combinations it plays. Each winner's prize share is proportional to what
-    ///      it staked (see {claimPrize}), not split evenly by winner count.
+    /// @dev A prediction pays this price per column it covers, so its cost scales with how many
+    ///      outcome combinations it plays. Each winner's prize share is proportional to what it
+    ///      paid (see {claimPrize}), not split evenly by winner count.
     uint256 public constant UNIT_PRICE = 2_000_000;
 
     /// @notice Number of matches per matchweek.
@@ -75,8 +75,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     mapping(uint256 predictionId => bytes32 hash) public predictionHash;
     /// @notice Number of columns a prediction spans: the product of its ten masks' popcounts.
     mapping(uint256 predictionId => uint256 columns) public predictionColumns;
-    mapping(uint256 predictionId => uint256 stake) public predictionStake;
-    /// @notice Sum of every prediction's stake in this matchweek.
+    /// @notice Sum of every prediction's cost in this matchweek.
     uint256 public totalStaked;
 
     uint8[10] private _outcomes;
@@ -141,13 +140,13 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param user        Address that submitted the prediction.
     /// @param matchweekId Unique identifier for this matchweek.
     /// @param predictions The ten submitted masks (bit0=home, bit1=draw, bit2=away).
-    /// @param stake       Amount of stablecoin staked on this prediction.
+    /// @param cost        Amount of stablecoin the prediction cost, {UNIT_PRICE} per column.
     event PredictionSubmitted(
         uint256 indexed predictionId,
         address indexed user,
         uint32 indexed matchweekId,
         uint8[10] predictions,
-        uint256 stake
+        uint256 cost
     );
 
     /// @notice Thrown if the constructor is given a matches array of incorrect length.
@@ -164,9 +163,6 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Thrown if a pick mask is outside the valid range 1–7.
     error InvalidMask(uint256 index, uint8 mask);
-
-    /// @notice Thrown if a prediction is submitted with a stake below {UNIT_PRICE}.
-    error StakeTooLow(uint256 provided, uint256 minimum);
 
     /// @notice Thrown if the constructor is given the zero address as the stablecoin.
     error InvalidStablecoin();
@@ -310,43 +306,42 @@ contract Matchweek is Ownable, ReentrancyGuard {
         emit MatchweekCreated(matchweekId, address(this), predictionDeadline, _matches);
     }
 
-    /// @notice Submits a prediction for this matchweek, staking `stake` stablecoin on it.
-    /// @dev Reverts if the prediction deadline has passed, `stake` is below {UNIT_PRICE}, or any
-    ///      mask is outside 1–7. Multiple predictions per address are allowed. Columns multiply
-    ///      rather than add, so the prediction spans the product of its masks' popcounts —
-    ///      uncapped, since ten masks of at most three bits bound it at `3**10 = 59,049`.
+    /// @notice Submits a prediction for this matchweek, charging {UNIT_PRICE} per column covered.
+    /// @dev Reverts if the prediction deadline has passed or any mask is outside 1–7. Multiple
+    ///      predictions per address are allowed. Columns multiply rather than add, so the
+    ///      prediction spans the product of its masks' popcounts — uncapped, since ten masks of at
+    ///      most three bits bound it at `3**10 = 59,049`. The cost is not chosen by the caller: it
+    ///      is `UNIT_PRICE * columns`, so the same coverage always costs the same, and it can never
+    ///      fall below {UNIT_PRICE} since a prediction spans at least one column.
     ///      The full mask array is not persisted in contract storage — only its hash,
     ///      recoverable from the {PredictionSubmitted} event — so {claimPrize} can verify that
-    ///      predictions presented on-chain match what was originally submitted. Pulls `stake` from
+    ///      predictions presented on-chain match what was originally submitted. Pulls the cost from
     ///      the caller via `transferFrom`, which requires prior `approve`.
     /// @param masks Ten pick masks, one per match: bit0 home, bit1 draw, bit2 away, so a single is
     ///              1, 2 or 4, a double 3, 5 or 6, and a triple 7.
-    /// @param stake Amount of stablecoin to stake on this prediction, at least {UNIT_PRICE}.
     /// @return predictionId Unique, sequential identifier assigned to this prediction.
-    function submitPrediction(uint8[10] calldata masks, uint256 stake)
+    function submitPrediction(uint8[10] calldata masks)
         external
         nonReentrant
         duringPredictionWindow
         returns (uint256 predictionId)
     {
-        if (stake < UNIT_PRICE) revert StakeTooLow(stake, UNIT_PRICE);
-
         uint256 columns = 1;
         for (uint256 i = 0; i < MATCH_COUNT; ++i) {
             uint8 mask = masks[i];
             if (mask < MIN_MASK || mask > MAX_MASK) revert InvalidMask(i, mask);
             columns *= _popcount(mask);
         }
+        uint256 cost = UNIT_PRICE * columns;
 
         predictionId = predictionCount++;
         predictionOwner[predictionId] = msg.sender;
         predictionHash[predictionId] = keccak256(abi.encode(masks));
         predictionColumns[predictionId] = columns;
-        predictionStake[predictionId] = stake;
-        totalStaked += stake;
+        totalStaked += cost;
 
-        STABLECOIN.safeTransferFrom(msg.sender, address(this), stake);
-        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, masks, stake);
+        STABLECOIN.safeTransferFrom(msg.sender, address(this), cost);
+        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, masks, cost);
     }
 
     /// @notice Publishes the ten final match outcomes on-chain, opening the dispute window.
@@ -463,8 +458,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Reverts if distribution has not been committed, the caller is not the prediction
     ///      owner, the prediction has already been claimed, the tier is out of range 6–10,
     ///      or the Merkle proof is invalid. Prize share is proportional to what this prediction
-    ///      staked relative to the tier's total: `prizePerTier[tier] * predictionStake[predictionId]
-    ///      / totalStakePerTier[tier]`.
+    ///      cost relative to the tier's total: `prizePerTier[tier] * predictionCost(predictionId)
+    ///      / totalStakePerTier[tier]`, so a prediction covering more columns earns proportionally
+    ///      more of the tier it wins.
     /// @param predictionId Unique identifier of the prediction to claim.
     /// @param tier    Number of correct picks for this prediction (6–10).
     /// @param proof   Merkle proof that `(predictionId, tier)` is included in {claimsRoot}.
@@ -493,7 +489,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         uint256 idx = tier - PrizeConfig.MIN_WINNING_TIER;
         if (totalStakePerTier[idx] == 0) revert EmptyTierPool(tier);
 
-        uint256 share = prizePerTier[idx] * predictionStake[predictionId] / totalStakePerTier[idx];
+        uint256 share = prizePerTier[idx] * predictionCost(predictionId) / totalStakePerTier[idx];
 
         claimed[predictionId] = true;
         STABLECOIN.safeTransfer(msg.sender, share);
@@ -512,6 +508,15 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @return The array of 10 Match structs for this matchweek.
     function getMatches() external view returns (Match[10] memory) {
         return _matches;
+    }
+
+    /// @notice Returns what a prediction cost: {UNIT_PRICE} for each column it covers.
+    /// @dev Derived rather than stored, since the cost follows from {predictionColumns} alone.
+    ///      Returns 0 for a predictionId that was never submitted.
+    /// @param predictionId Unique identifier of the prediction.
+    /// @return The amount of stablecoin the prediction cost when it was submitted.
+    function predictionCost(uint256 predictionId) public view returns (uint256) {
+        return UNIT_PRICE * predictionColumns[predictionId];
     }
 
     function _duringPredictionWindow() internal view {
