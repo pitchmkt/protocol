@@ -466,7 +466,7 @@ contract MatchweekTest is Test {
         _publishResults();
 
         // Alice is the only winner, in tier 6 (index 0, TIER6_PRIZE_PCT of pool).
-        bytes32 root = _merkleLeaf(0, 6);
+        bytes32 root = _merkleLeaf(0, _columnsAt(6, 1));
         uint256[5] memory totalStakePerTier_;
         totalStakePerTier_[0] = cost;
 
@@ -569,7 +569,8 @@ contract MatchweekTest is Test {
         // Single leaf: root = leaf, proof = [].
         // Tier 7 (index 1) = 10% of totalStaked.
         uint8 tier = 7;
-        bytes32 leaf = _merkleLeaf(predictionId, tier);
+        uint256[5] memory columns = _columnsAt(tier, 1);
+        bytes32 leaf = _merkleLeaf(predictionId, columns);
 
         uint256[5] memory totalStakePerTier_;
         totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = cost;
@@ -581,11 +582,45 @@ contract MatchweekTest is Test {
         uint256 balanceBefore = stablecoin.balanceOf(ALICE);
 
         vm.expectEmit(true, true, true, true);
-        emit Matchweek.PrizeClaimed(matchweek.matchweekId(), predictionId, ALICE, expectedShare);
+        emit Matchweek.PrizeClaimed(matchweek.matchweekId(), predictionId, ALICE, expectedShare, columns);
         vm.prank(ALICE);
-        matchweek.claimPrize(predictionId, tier, new bytes32[](0));
+        matchweek.claimPrize(predictionId, columns, new bytes32[](0));
 
         assertEq(stablecoin.balanceOf(ALICE), balanceBefore + expectedShare);
+        assertEq(matchweek.claimed(predictionId), true);
+    }
+
+    // One correctly-guessed double splits Bob's 4 columns across tiers 10, 9 and 8, and a single
+    // call pays all three.
+    function test_claimPrize_everyTierInOneCall() public {
+        stablecoin.mint(BOB, 1_000_000_000);
+        vm.prank(BOB);
+        stablecoin.approve(address(matchweek), type(uint256).max);
+
+        uint256 unitPrice = matchweek.UNIT_PRICE();
+        vm.prank(BOB);
+        uint256 predictionId = matchweek.submitPrediction(_buildMasksWithDoubles(2));
+        assertEq(matchweek.predictionColumns(predictionId), 4);
+
+        _publishResults();
+
+        // 1 column at ten, 2 at nine, 1 at eight — the whole prediction, in one leaf.
+        uint256[5] memory columns = [uint256(0), 0, 1, 2, 1];
+        uint256[5] memory totalStakePerTier_ = [uint256(0), 0, unitPrice, 2 * unitPrice, unitPrice];
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(_merkleLeaf(predictionId, columns), totalStakePerTier_);
+
+        // Bob is the only winner in each tier, so he takes all three pools whole.
+        uint256 expectedShare = matchweek.prizePerTier(2) + matchweek.prizePerTier(3) + matchweek.prizePerTier(4);
+        uint256 balanceBefore = stablecoin.balanceOf(BOB);
+
+        vm.expectEmit(true, true, true, true);
+        emit Matchweek.PrizeClaimed(matchweek.matchweekId(), predictionId, BOB, expectedShare, columns);
+        vm.prank(BOB);
+        matchweek.claimPrize(predictionId, columns, new bytes32[](0));
+
+        assertEq(stablecoin.balanceOf(BOB), balanceBefore + expectedShare);
         assertEq(matchweek.claimed(predictionId), true);
     }
 
@@ -601,21 +636,22 @@ contract MatchweekTest is Test {
         matchweek.submitPrediction(_buildValidMasks());
 
         _publishResults();
-        _commitTwoPredictionDistribution(0, 1, 8, cost, cost);
+        _commitTwoPredictionDistribution(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
 
-        // Tier 8 (index 2) = 15% of totalStaked, split evenly since both cover one column.
+        // Tier 8 (index 2) = 15% of totalStaked, split evenly since both reach it with one column.
         uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
         uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
 
-        (bytes32[] memory proofAlice, bytes32[] memory proofBob) = _buildTwoPredictionProofs(0, 1, 8);
+        (bytes32[] memory proofAlice, bytes32[] memory proofBob) =
+            _buildTwoPredictionProofs(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
 
         uint256 shareAlice = tierPool * cost / tierTotalStake;
         uint256 shareBob = tierPool * cost / tierTotalStake;
 
         vm.prank(ALICE);
-        matchweek.claimPrize(0, 8, proofAlice);
+        matchweek.claimPrize(0, _columnsAt(8, 1), proofAlice);
         vm.prank(BOB);
-        matchweek.claimPrize(1, 8, proofBob);
+        matchweek.claimPrize(1, _columnsAt(8, 1), proofBob);
 
         assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - cost + shareAlice);
         assertEq(stablecoin.balanceOf(BOB), 1_000_000_000 - cost + shareBob);
@@ -634,28 +670,181 @@ contract MatchweekTest is Test {
         matchweek.submitPrediction(_buildMasksWithDoubles(1));
 
         _publishResults();
-        _commitTwoPredictionDistribution(0, 1, 8, aliceCost, bobCost);
+        _commitTwoPredictionDistribution(0, _columnsAt(8, 1), 1, _columnsAt(8, 2));
 
         uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
         uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
-        (bytes32[] memory proofAlice, bytes32[] memory proofBob) = _buildTwoPredictionProofs(0, 1, 8);
+        (bytes32[] memory proofAlice, bytes32[] memory proofBob) =
+            _buildTwoPredictionProofs(0, _columnsAt(8, 1), 1, _columnsAt(8, 2));
 
         uint256 expectedShareAlice = tierPool * aliceCost / tierTotalStake;
         uint256 expectedShareBob = tierPool * bobCost / tierTotalStake;
 
         vm.prank(ALICE);
-        matchweek.claimPrize(0, 8, proofAlice);
+        matchweek.claimPrize(0, _columnsAt(8, 1), proofAlice);
         vm.prank(BOB);
-        matchweek.claimPrize(1, 8, proofBob);
+        matchweek.claimPrize(1, _columnsAt(8, 2), proofBob);
 
         assertEq(stablecoin.balanceOf(ALICE), 1_000_000_000 - aliceCost + expectedShareAlice);
         assertEq(stablecoin.balanceOf(BOB), 1_000_000_000 - bobCost + expectedShareBob);
-        // Bob covers twice the columns Alice does, so he paid twice as much and his share must be
-        // exactly twice hers.
+        // Bob reaches the tier with twice the columns Alice does, so his share is exactly twice hers.
         assertEq(expectedShareBob, expectedShareAlice * 2);
     }
 
-    // Alice is in the tree at tier 7 but tries to claim tier 10 — wrong proof, fails at Merkle.
+    // Bob plays two doubles (4 columns) but reaches tier 8 with only one of them.
+    function test_claimPrize_sharesOnlyWinningColumns() public {
+        stablecoin.mint(BOB, 1_000_000_000);
+        vm.prank(BOB);
+        stablecoin.approve(address(matchweek), type(uint256).max);
+
+        uint256 unitPrice = matchweek.UNIT_PRICE();
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidMasks());
+        vm.prank(BOB);
+        matchweek.submitPrediction(_buildMasksWithDoubles(2));
+        assertEq(matchweek.predictionCost(1), unitPrice * 4);
+
+        _publishResults();
+        _commitTwoPredictionDistribution(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
+
+        uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        (, bytes32[] memory proofBob) = _buildTwoPredictionProofs(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
+
+        uint256 expectedShare = tierPool * unitPrice / tierTotalStake;
+        uint256 balanceBefore = stablecoin.balanceOf(BOB);
+
+        vm.prank(BOB);
+        matchweek.claimPrize(1, _columnsAt(8, 1), proofBob);
+
+        assertEq(stablecoin.balanceOf(BOB), balanceBefore + expectedShare);
+        assertEq(expectedShare, tierPool / 2);
+    }
+
+    // The double is on a match whose actual outcome it excludes, so both columns miss it equally
+    // and land in the same tier — a multiple does not always split.
+    function test_claimPrize_missedMultipleDoesNotSplit() public {
+        uint256 unitPrice = matchweek.UNIT_PRICE();
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildMasksWithMissedDouble());
+        assertEq(matchweek.predictionColumns(predictionId), 2);
+
+        _publishResults();
+
+        // Both columns at tier 9, nothing anywhere else.
+        uint256[5] memory columns = _columnsAt(9, 2);
+        uint256[5] memory totalStakePerTier_ = _columnsAt(9, 2 * unitPrice);
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(_merkleLeaf(predictionId, columns), totalStakePerTier_);
+
+        uint256 expectedShare = matchweek.prizePerTier(9 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 balanceBefore = stablecoin.balanceOf(ALICE);
+
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, columns, new bytes32[](0));
+
+        assertEq(stablecoin.balanceOf(ALICE), balanceBefore + expectedShare);
+    }
+
+    // Alice (two doubles) and Bob (one double) reach tiers 10 and 9 with different column counts,
+    // and Alice reaches 8 alone. Every tier splits on its own denominator.
+    function test_claimPrize_proportionalAcrossSeveralTiers() public {
+        stablecoin.mint(BOB, 1_000_000_000);
+        vm.prank(BOB);
+        stablecoin.approve(address(matchweek), type(uint256).max);
+
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildMasksWithDoubles(2));
+        vm.prank(BOB);
+        matchweek.submitPrediction(_buildMasksWithDoubles(1));
+
+        _publishResults();
+
+        uint256[5] memory columnsAlice = [uint256(0), 0, 1, 2, 1];
+        uint256[5] memory columnsBob = [uint256(0), 0, 0, 1, 1];
+        _commitTwoPredictionDistribution(0, columnsAlice, 1, columnsBob);
+
+        (bytes32[] memory proofAlice, bytes32[] memory proofBob) =
+            _buildTwoPredictionProofs(0, columnsAlice, 1, columnsBob);
+
+        // Tier 10: 1 of 2 columns each. Tier 9: 2 of 3 for Alice, 1 of 3 for Bob. Tier 8: Alice alone.
+        uint256 expectedAlice =
+            matchweek.prizePerTier(4) / 2 + matchweek.prizePerTier(3) * 2 / 3 + matchweek.prizePerTier(2);
+        uint256 expectedBob = matchweek.prizePerTier(4) / 2 + matchweek.prizePerTier(3) * 1 / 3;
+
+        uint256 balanceAlice = stablecoin.balanceOf(ALICE);
+        uint256 balanceBob = stablecoin.balanceOf(BOB);
+
+        vm.prank(ALICE);
+        matchweek.claimPrize(0, columnsAlice, proofAlice);
+        vm.prank(BOB);
+        matchweek.claimPrize(1, columnsBob, proofBob);
+
+        assertEq(stablecoin.balanceOf(ALICE), balanceAlice + expectedAlice);
+        assertEq(stablecoin.balanceOf(BOB), balanceBob + expectedBob);
+
+        // Everything paid across both claims stays within the three tier pools — integer division
+        // can only leave dust behind, never overdraw.
+        uint256 pools = matchweek.prizePerTier(2) + matchweek.prizePerTier(3) + matchweek.prizePerTier(4);
+        assertLe(expectedAlice + expectedBob, pools);
+    }
+
+    // Same prediction and same total columns, but moved from tier 9 to tier 10 — fails at Merkle.
+    function testRevert_claimPrize_tamperedVector() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildMasksWithDoubles(1));
+
+        _publishResults();
+
+        uint256[5] memory committed = [uint256(0), 0, 0, 1, 1];
+        uint256[5] memory tampered = [uint256(0), 0, 0, 0, 2];
+        uint256[5] memory totalStakePerTier_ = [uint256(0), 0, 0, matchweek.UNIT_PRICE(), matchweek.UNIT_PRICE()];
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(_merkleLeaf(predictionId, committed), totalStakePerTier_);
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, predictionId));
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, tampered, new bytes32[](0));
+    }
+
+    // The vector reaches tier 10 but the admin left that tier's total at zero.
+    function testRevert_claimPrize_emptyTierPoolInVector() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildMasksWithDoubles(1));
+
+        _publishResults();
+
+        uint256[5] memory columns = [uint256(0), 0, 0, 1, 1];
+        uint256[5] memory totalStakePerTier_ = _columnsAt(9, matchweek.UNIT_PRICE());
+
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(_merkleLeaf(predictionId, columns), totalStakePerTier_);
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.EmptyTierPool.selector, uint8(10)));
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, columns, new bytes32[](0));
+    }
+
+    // Right prediction, inflated column count — the leaf no longer matches, fails at Merkle.
+    function testRevert_claimPrize_wrongColumnCount() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildMasksWithDoubles(2));
+
+        _publishResults();
+        bytes32 root = _merkleLeaf(predictionId, _columnsAt(8, 1));
+        uint256[5] memory totalStakePerTier_;
+        totalStakePerTier_[8 - PrizeConfig.MIN_WINNING_TIER] = matchweek.UNIT_PRICE();
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(root, totalStakePerTier_);
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, predictionId));
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, _columnsAt(8, 4), new bytes32[](0));
+    }
+
+    // Alice is in the tree at tier 7 but claims her column at tier 10 — wrong proof, fails at Merkle.
     function testRevert_claimPrize_wrongTierProof() public {
         uint256 cost = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
@@ -664,7 +853,7 @@ contract MatchweekTest is Test {
         _publishResults();
 
         uint8 aliceTier = 7;
-        bytes32 root = _merkleLeaf(0, aliceTier);
+        bytes32 root = _merkleLeaf(0, _columnsAt(aliceTier, 1));
 
         uint256[5] memory totalStakePerTier_;
         totalStakePerTier_[aliceTier - 6] = cost;
@@ -672,9 +861,9 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, totalStakePerTier_);
 
-        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, uint256(0), uint8(10)));
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, uint256(0)));
         vm.prank(ALICE);
-        matchweek.claimPrize(0, 10, new bytes32[](0));
+        matchweek.claimPrize(0, _columnsAt(10, 1), new bytes32[](0));
     }
 
     // Alice is in the tree at tier 7 but admin set totalStakePerTier[7-6] = 0 by mistake
@@ -686,7 +875,7 @@ contract MatchweekTest is Test {
         _publishResults();
 
         uint8 tier = 7;
-        bytes32 root = _merkleLeaf(0, tier);
+        bytes32 root = _merkleLeaf(0, _columnsAt(tier, 1));
 
         // Winning tier total is 0 → contract sets prizePerTier[tier-6] = 0 → EmptyTierPool on claim.
         vm.prank(ADMIN);
@@ -694,7 +883,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.EmptyTierPool.selector, tier));
         vm.prank(ALICE);
-        matchweek.claimPrize(0, tier, new bytes32[](0));
+        matchweek.claimPrize(0, _columnsAt(tier, 1), new bytes32[](0));
     }
 
     function testRevert_claimPrize_distributionNotCommitted() public {
@@ -703,7 +892,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert(Matchweek.DistributionNotCommitted.selector);
         vm.prank(ALICE);
-        matchweek.claimPrize(0, 7, new bytes32[](0));
+        matchweek.claimPrize(0, _columnsAt(7, 1), new bytes32[](0));
     }
 
     function testRevert_claimPrize_notPredictionOwner() public {
@@ -714,7 +903,7 @@ contract MatchweekTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.NotPredictionOwner.selector, predictionId));
         vm.prank(address(0xB0B));
-        matchweek.claimPrize(predictionId, 7, new bytes32[](0));
+        matchweek.claimPrize(predictionId, _columnsAt(7, 1), new bytes32[](0));
     }
 
     function testRevert_claimPrize_alreadyClaimed() public {
@@ -724,33 +913,11 @@ contract MatchweekTest is Test {
         _publishAndCommitSinglePrediction(predictionId, 7);
 
         vm.prank(ALICE);
-        matchweek.claimPrize(predictionId, 7, new bytes32[](0));
+        matchweek.claimPrize(predictionId, _columnsAt(7, 1), new bytes32[](0));
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.AlreadyClaimed.selector, predictionId));
         vm.prank(ALICE);
-        matchweek.claimPrize(predictionId, 7, new bytes32[](0));
-    }
-
-    function testRevert_claimPrize_invalidTier_tooLow() public {
-        vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
-
-        _publishAndCommitSinglePrediction(predictionId, 7);
-
-        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidTier.selector, uint8(5)));
-        vm.prank(ALICE);
-        matchweek.claimPrize(predictionId, 5, new bytes32[](0));
-    }
-
-    function testRevert_claimPrize_invalidTier_tooHigh() public {
-        vm.prank(ALICE);
-        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
-
-        _publishAndCommitSinglePrediction(predictionId, 7);
-
-        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidTier.selector, uint8(11)));
-        vm.prank(ALICE);
-        matchweek.claimPrize(predictionId, 11, new bytes32[](0));
+        matchweek.claimPrize(predictionId, _columnsAt(7, 1), new bytes32[](0));
     }
 
     function testRevert_claimPrize_invalidProof() public {
@@ -760,9 +927,9 @@ contract MatchweekTest is Test {
         _publishAndCommitSinglePrediction(predictionId, 7);
 
         // Correct tier is 7 but claiming tier 8
-        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, predictionId, uint8(8)));
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidProof.selector, predictionId));
         vm.prank(ALICE);
-        matchweek.claimPrize(predictionId, 8, new bytes32[](0));
+        matchweek.claimPrize(predictionId, _columnsAt(8, 1), new bytes32[](0));
     }
 
     ////
@@ -820,7 +987,7 @@ contract MatchweekTest is Test {
         vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
 
         uint8 tier = 10;
-        bytes32 root = _merkleLeaf(predictionId, tier);
+        bytes32 root = _merkleLeaf(predictionId, _columnsAt(tier, 1));
         uint256[5] memory totalStakePerTier_;
         totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = cost;
 
@@ -837,7 +1004,7 @@ contract MatchweekTest is Test {
 
         uint256 balanceBefore = stablecoin.balanceOf(BOB);
         vm.prank(BOB);
-        matchweek2.claimPrize(predictionId, tier, new bytes32[](0));
+        matchweek2.claimPrize(predictionId, _columnsAt(tier, 1), new bytes32[](0));
         assertEq(stablecoin.balanceOf(BOB), balanceBefore + expectedPrizePerTier10);
     }
 
@@ -934,56 +1101,70 @@ contract MatchweekTest is Test {
         vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
     }
 
-    /// @dev Publishes results and commits a single-prediction distribution for the given
-    ///      predictionId/tier, using that prediction's actual cost as the tier total. For a
-    ///      single-leaf tree, root = leaf and proof = [].
+    /// @dev Publishes results and commits a single-prediction distribution where every column of
+    ///      the prediction reaches the tier. For a single-leaf tree, root = leaf and proof = [].
     function _publishAndCommitSinglePrediction(uint256 predictionId, uint8 tier) internal {
         _publishResults();
-        bytes32 root = _merkleLeaf(predictionId, tier);
+        bytes32 root = _merkleLeaf(predictionId, _columnsAt(tier, matchweek.predictionColumns(predictionId)));
         uint256[5] memory totalStakePerTier_;
         totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = matchweek.predictionCost(predictionId);
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, totalStakePerTier_);
     }
 
-    /// @dev Merkle leaf for (predictionId, tier), matching the contract's double-hash encoding.
-    function _merkleLeaf(uint256 predictionId, uint8 tier) internal pure returns (bytes32) {
-        return keccak256(bytes.concat(keccak256(abi.encode(predictionId, tier))));
+    /// @dev Merkle leaf for (predictionId, columnsPerTier), matching the contract's double-hash
+    ///      encoding.
+    function _merkleLeaf(uint256 predictionId, uint256[5] memory columnsPerTier) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(predictionId, columnsPerTier))));
     }
 
-    /// @dev Commits a distribution where two predictions (predictionA, predictionB) are both in
-    ///      the same tier, with the tier total set to the sum of their individual stakes.
+    /// @dev Column vector holding `columns` in a single tier and zero everywhere else.
+    function _columnsAt(uint8 tier, uint256 columns) internal pure returns (uint256[5] memory columnsPerTier) {
+        columnsPerTier[tier - PrizeConfig.MIN_WINNING_TIER] = columns;
+    }
+
+    /// @dev Commits a two-leaf distribution from both predictions' column vectors, setting each
+    ///      tier total to the columns the two contribute to it, priced at {UNIT_PRICE}.
     function _commitTwoPredictionDistribution(
         uint256 predictionA,
+        uint256[5] memory columnsA,
         uint256 predictionB,
-        uint8 tier,
-        uint256 costA,
-        uint256 costB
+        uint256[5] memory columnsB
     ) internal {
-        bytes32 leafA = _merkleLeaf(predictionA, tier);
-        bytes32 leafB = _merkleLeaf(predictionB, tier);
+        bytes32 leafA = _merkleLeaf(predictionA, columnsA);
+        bytes32 leafB = _merkleLeaf(predictionB, columnsB);
         bytes32 root =
             leafA <= leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
         uint256[5] memory totalStakePerTier_;
-        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = costA + costB;
+        for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
+            totalStakePerTier_[i] = (columnsA[i] + columnsB[i]) * matchweek.UNIT_PRICE();
+        }
 
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, totalStakePerTier_);
     }
 
-    /// @dev Returns the Merkle proofs for two predictions in a 2-leaf tree (same tier).
-    function _buildTwoPredictionProofs(uint256 predictionA, uint256 predictionB, uint8 tier)
-        internal
-        pure
-        returns (bytes32[] memory proofA, bytes32[] memory proofB)
-    {
-        bytes32 leafA = _merkleLeaf(predictionA, tier);
-        bytes32 leafB = _merkleLeaf(predictionB, tier);
+    /// @dev Returns the Merkle proofs for two predictions in a 2-leaf tree.
+    function _buildTwoPredictionProofs(
+        uint256 predictionA,
+        uint256[5] memory columnsA,
+        uint256 predictionB,
+        uint256[5] memory columnsB
+    ) internal pure returns (bytes32[] memory proofA, bytes32[] memory proofB) {
+        bytes32 leafA = _merkleLeaf(predictionA, columnsA);
+        bytes32 leafB = _merkleLeaf(predictionB, columnsB);
         proofA = new bytes32[](1);
         proofA[0] = leafB;
         proofB = new bytes32[](1);
         proofB[0] = leafA;
+    }
+
+    /// @dev Builds ten masks where match 2 is a double that excludes its actual outcome (away),
+    ///      so both columns miss it and land in the same tier.
+    function _buildMasksWithMissedDouble() internal pure returns (uint8[10] memory masks) {
+        masks = _buildValidMasks();
+        masks[2] = MASK_HOME | MASK_DRAW;
     }
 
     /// @dev Returns a zeroed [5] uint256 array (used for empty tier inputs).
