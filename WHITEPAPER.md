@@ -14,9 +14,7 @@ The protocol is designed to be transparent, intermediary-free and open to anyone
 
 Every weekend a new matchday opens with ten matches drawn from a curated selection of the top European football leagues. Users have until fifteen minutes before the first kick-off to submit their prediction: for each match they select one or more outcomes — the home team wins, the match ends in a draw, or the away team wins.
 
-Selecting a single outcome in every match produces one **column**: a complete combination of ten outcomes, one per match. Selecting two or three outcomes in a match does not create a second prediction, it widens the one being made — the prediction then spans every column consistent with those selections. A prediction that backs two outcomes in one match and a single outcome in the other nine spans two columns.
-
-The column is the unit the protocol prices and pays. One column costs a fixed amount in stablecoins, so the cost of a prediction is that unit price multiplied by the number of columns it spans. Nobody chooses how much to stake: the cost is derived from the picks themselves and charged on submission.
+Selecting a single outcome in every match produces one **column**: a complete combination of ten outcomes, one per match. Selecting two or three outcomes in a match does not create a second prediction, it widens the one being made. That width is what the protocol charges for, and the next section sets out exactly how it is counted and priced.
 
 A prediction is unique however many columns it spans, and there is no way to buy the same one twice. A user who wants more exposure submits another prediction. Every prediction submitted accumulates into a shared prize pool.
 
@@ -24,9 +22,51 @@ Once all matches are finished, the results are published in an official and veri
 
 ---
 
-## How prizes are distributed
+## Columns, doubles and triples
 
-Every column a prediction spans is scored on its own, and each one lands in exactly one tier according to how many of its ten outcomes proved correct. A prediction spanning several columns can therefore win in several tiers at the same time: when a match covered by two outcomes comes in, one column ends with ten correct and the other with nine, and both are paid.
+The column is the atom of the protocol: the thing that is priced, the thing that is scored and the thing that is paid. Its price is a fixed amount of stablecoins, the same for everybody on every matchday. What varies is how many columns a prediction spans, and that is decided entirely by the shape of its picks.
+
+A pick is one match's worth of a prediction, and it may cover more than one outcome. Covering one outcome is a single, covering two is a **double**, covering three is a **triple**. Ten picks describe every column consistent with them, and their number is simply the product of the outcomes chosen in each match:
+
+```
+columns = 2^doubles × 3^triples
+cost    = unit price × columns
+```
+
+Coverage is therefore bought, not granted. Each additional outcome in a match multiplies the width of the prediction and multiplies its cost by the same factor:
+
+| Doubles | Triples | Columns | Cost |
+|---|---|---|---|
+| 0 | 0 | 1 | 1 unit |
+| 1 | 0 | 2 | 2 units |
+| 0 | 1 | 3 | 3 units |
+| 2 | 0 | 4 | 4 units |
+| 2 | 1 | 12 | 12 units |
+| 4 | 0 | 16 | 16 units |
+| 3 | 2 | 72 | 72 units |
+| 7 | 0 | 128 | 128 units |
+| 10 | 0 | 1,024 | 1,024 units |
+| 0 | 10 | 59,049 | 59,049 units |
+
+The growth is multiplicative, not additive: a double costs double, a triple costs triple, and every extra match a user is unsure about compounds the bill. Width is a deliberate purchase, never a hedge that comes for free. And its price is never quoted or negotiated — it falls out of the picks themselves and is charged on submission.
+
+### Winning several tiers at once
+
+Every column a prediction spans is scored on its own and lands in exactly one prize tier, set by how many of its ten outcomes proved correct — the scale of tiers and what each pays is in the next section. One prediction can therefore end the matchday in several tiers at the same time.
+
+Take a prediction with nine singles and one double, all nine singles correct, the double covering home win and draw on the tenth match. That prediction spans two columns and cost two units. If the match ends in a draw, one column has all ten outcomes right and the other has nine: the prediction wins the top tier — carry pool included — and tier nine, and claims both.
+
+Width does not always split the result that way. If that same match ends in an away win, neither branch of the double hit: both columns finish with nine correct, both land in tier nine, and both are paid. The double bought two chances at the top tier, not a guarantee of one.
+
+### Why there is no cap on columns
+
+A pick is a non-empty choice among home win, draw and away win. There are exactly seven of those — three singles, three doubles and one triple — and the eighth combination, the pick that covers nothing, cannot be expressed at all. Ten picks of at most three outcomes each therefore bound any prediction at `3^10 = 59,049` columns: the widest object the format can describe, and the last row of the table above.
+
+No explicit limit is needed, because the shape of a prediction already imposes one. And well before that ceiling the cost does the rest: the maximum prediction costs 59,049 unit prices, so width is self-limiting long before it becomes a burden on the protocol.
+
+---
+
+## How prizes are distributed
 
 The prize pool is divided into tiers based on the number of correct outcomes in a column:
 
@@ -49,7 +89,7 @@ Prizes are claimed per tier, not per prediction: a prediction that won in three 
 
 The carry pool is the protocol's most powerful incentive: a balance that accumulates across matchdays and can only ever be won outright.
 
-It is funded entirely by prize money that was never awarded, from two sources: the percentage of any tier that no column reached, and any prize a winner fails to collect within the thirty-day claim window. Nothing else feeds it; in particular, the protocol fee does not. This is what keeps the carry pool honest — it is built from unawarded prizes, never from money taken out of players' pockets.
+It is funded entirely by prize money that was never awarded — the empty tiers and the uncollected prizes described above, and nothing else. The protocol fee, in particular, does not feed it. This is what keeps the carry pool honest: it is built from prizes nobody took, never from money taken out of players' pockets.
 
 Because a tier is left empty far more often than a perfect ten is hit, the pool grows matchday after matchday. The longer it goes without a perfect winner, the bigger it gets, generating anticipation and attracting new participants.
 
@@ -107,7 +147,7 @@ It is the protocol's only cut: charged once, on the pool, with nothing further t
 
 ## Player reputation
 
-Every participant builds a public record of their activity: matchdays played, total correct predictions, best matchday, active streak and historical earnings. This record is visible to anyone, allowing members to choose which squad to join based on their leader's track record.
+Every participant builds a public record of their activity: matchdays played, total correct predictions, best matchday, active streak and historical earnings. It is visible to anyone, and it is built from what the participant actually did on-chain, so it can be neither curated nor claimed.
 
 The most consistent and accurate players earn a rank that identifies them across the platform, ranging from rookie to iconic.
 
