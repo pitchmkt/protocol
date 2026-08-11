@@ -13,8 +13,14 @@ import {Treasury} from "./Treasury.sol";
 
 /// @title Matchweek
 /// @author PitchMkt
-/// @notice Stores the ten matches for a single PitchMkt matchweek and accepts
-///         predictions until the prediction deadline.
+/// @notice Stores the ten matches for a single PitchMkt matchweek, accepts predictions until the
+///         prediction deadline, and pays the winners once the admin commits the distribution.
+/// @dev The column is the unit of account. A prediction is one mask per match — a single, a double
+///      or a triple — and spans the product of those masks' popcounts in columns, each bought at
+///      {UNIT_PRICE}. The caller never chooses an amount: cost follows from coverage.
+///      Every column lands in exactly one accuracy tier, so a prediction playing multiples reaches
+///      several tiers at once and is paid for all of them in a single {claimPrize}, proportionally
+///      to what its winning columns cost in each.
 contract Matchweek is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -51,10 +57,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Index into the tier arrays for the perfect-ten tier (tier 10 → index 4).
     uint256 private constant TIER10_INDEX = PrizeConfig.TIER_COUNT - 1;
 
-    /// @notice ERC20 token accepted as stake for predictions, shared by every matchweek clone.
+    /// @notice ERC20 token predictions are paid in, shared by every matchweek clone.
     IERC20 public immutable STABLECOIN;
 
-    /// @notice Standalone pool that accumulates unallocated stake across matchweeks and pays
+    /// @notice Standalone pool that accumulates unawarded prize money across matchweeks and pays
     ///         out to a perfect-ten winner, shared by every matchweek clone.
     CarryPool public immutable CARRY_POOL;
 
@@ -93,6 +99,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     uint256 public protocolFee;
     bool public distributionCommitted;
 
+    /// @notice Whether a prediction has been paid. One flag covers every tier it reached, since
+    ///         {claimPrize} settles them together.
     mapping(uint256 predictionId => bool) public claimed;
 
     /// @notice Emitted at construction to enable off-chain indexing by matchweekId.
@@ -149,13 +157,16 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param predictionId     Unique, sequential identifier for this prediction within the matchweek.
     /// @param user        Address that submitted the prediction.
     /// @param matchweekId Unique identifier for this matchweek.
-    /// @param predictions The ten submitted masks (bit0=home, bit1=draw, bit2=away).
+    /// @param masks       The ten submitted masks (bit0=home, bit1=draw, bit2=away).
+    /// @param columns     Number of columns the prediction spans, the product of the masks'
+    ///                    popcounts. Emitted so the indexer does not have to recompute it.
     /// @param cost        Amount of stablecoin the prediction cost, {UNIT_PRICE} per column.
     event PredictionSubmitted(
         uint256 indexed predictionId,
         address indexed user,
         uint32 indexed matchweekId,
-        uint8[10] predictions,
+        uint8[10] masks,
+        uint256 columns,
         uint256 cost
     );
 
@@ -273,7 +284,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      the implementation's code, STABLECOIN's, CARRY_POOL's, TREASURY's and DISPUTES's
     ///      values (baked into that code) are shared by every clone without needing to be set
     ///      per-instance.
-    /// @param stablecoin_ ERC20 token accepted as stake for predictions, for every matchweek clone.
+    /// @param stablecoin_ ERC20 token predictions are paid in, for every matchweek clone.
     /// @param carryPool_  Standalone carry pool shared by every matchweek clone.
     /// @param treasury_   Standalone treasury shared by every matchweek clone.
     /// @param disputes_   Standalone disputes contract shared by every matchweek clone.
@@ -350,7 +361,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         totalStaked += cost;
 
         STABLECOIN.safeTransferFrom(msg.sender, address(this), cost);
-        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, masks, cost);
+        emit PredictionSubmitted(predictionId, msg.sender, matchweekId, masks, columns, cost);
     }
 
     /// @notice Publishes the ten final match outcomes on-chain, opening the dispute window.
@@ -391,7 +402,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         emit ResultsCorrected(matchweekId, correctedOutcomes);
     }
 
-    /// @notice Commits the prize distribution as a Merkle root and the per-tier winning stake.
+    /// @notice Commits the prize distribution as a Merkle root and the per-tier winning columns.
     /// @dev Each Merkle leaf is `keccak256(abi.encode(predictionId, columnsPerTier))` — one leaf
     ///      per winning prediction, carrying how many of its columns reached each tier.
     ///      Tiers 6–10 map to indices 0–4 (`index = tier - 6`).

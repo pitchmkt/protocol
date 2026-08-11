@@ -170,7 +170,7 @@ contract MatchweekTest is Test {
         uint256 cost = matchweek.UNIT_PRICE();
 
         vm.expectEmit(true, true, true, true);
-        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, masks, cost);
+        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, masks, 1, cost);
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(masks);
 
@@ -211,6 +211,8 @@ contract MatchweekTest is Test {
         masks[1] = 6; // D,A — double
         uint256 expectedCost = matchweek.UNIT_PRICE() * 4;
 
+        vm.expectEmit(true, true, true, true);
+        emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, masks, 4, expectedCost);
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(masks);
 
