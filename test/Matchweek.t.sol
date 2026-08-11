@@ -161,7 +161,7 @@ contract MatchweekTest is Test {
 
     function test_submitPrediction() public {
         uint8[10] memory predictions = _buildValidPredictions();
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
 
         vm.expectEmit(true, true, true, true);
         emit Matchweek.PredictionSubmitted(0, ALICE, MATCHWEEK_ID, predictions, stake);
@@ -180,7 +180,7 @@ contract MatchweekTest is Test {
 
     function test_submitPrediction_sameAddressMultiplePredictions() public {
         uint8[10] memory predictions = _buildValidPredictions();
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
 
         vm.startPrank(ALICE);
         uint256 first = matchweek.submitPrediction(predictions, stake);
@@ -199,7 +199,7 @@ contract MatchweekTest is Test {
     }
 
     function test_submitPrediction_variableStake() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT() * 3;
+        uint256 stake = matchweek.UNIT_PRICE() * 3;
 
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
@@ -213,7 +213,7 @@ contract MatchweekTest is Test {
     function testRevert_submitPrediction_invalidPredictionValue() public {
         uint8[10] memory predictions = _buildValidPredictions();
         predictions[3] = 3;
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
 
         vm.expectRevert(abi.encodeWithSelector(Matchweek.InvalidPredictionValue.selector, uint256(3), uint8(3)));
         vm.prank(ALICE);
@@ -221,15 +221,15 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_submitPrediction_stakeTooLow() public {
-        uint256 tooLow = matchweek.MIN_STAKE_AMOUNT() - 1;
+        uint256 tooLow = matchweek.UNIT_PRICE() - 1;
 
-        vm.expectRevert(abi.encodeWithSelector(Matchweek.StakeTooLow.selector, tooLow, matchweek.MIN_STAKE_AMOUNT()));
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.StakeTooLow.selector, tooLow, matchweek.UNIT_PRICE()));
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), tooLow);
     }
 
     function testRevert_submitPrediction_predictionWindowClosed() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.warp(_predictionDeadline);
 
         vm.expectRevert(Matchweek.PredictionWindowClosed.selector);
@@ -238,7 +238,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_submitPrediction_insufficientAllowance() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         stablecoin.approve(address(matchweek), 0);
 
@@ -248,7 +248,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_submitPrediction_insufficientBalance() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         address poor = address(0xB0B);
         vm.prank(poor);
         stablecoin.approve(address(matchweek), type(uint256).max);
@@ -406,7 +406,7 @@ contract MatchweekTest is Test {
     }
 
     function test_commitDistribution_prizeComputedOnChain() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -439,7 +439,7 @@ contract MatchweekTest is Test {
     }
 
     function test_commitDistribution_emptyTiersGoToUnallocated() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -462,8 +462,8 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         stablecoin.approve(address(matchweek), type(uint256).max);
 
-        uint256 aliceStake = matchweek.MIN_STAKE_AMOUNT();
-        uint256 bobStake = matchweek.MIN_STAKE_AMOUNT() * 4;
+        uint256 aliceStake = matchweek.UNIT_PRICE();
+        uint256 bobStake = matchweek.UNIT_PRICE() * 4;
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), aliceStake);
         vm.prank(BOB);
@@ -507,7 +507,7 @@ contract MatchweekTest is Test {
     ////
 
     function test_claimPrize_singleWinner() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -541,7 +541,7 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         stablecoin.approve(address(matchweek), type(uint256).max);
 
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
         vm.prank(BOB);
@@ -573,8 +573,8 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         stablecoin.approve(address(matchweek), type(uint256).max);
 
-        uint256 aliceStake = matchweek.MIN_STAKE_AMOUNT();
-        uint256 bobStake = matchweek.MIN_STAKE_AMOUNT() * 2;
+        uint256 aliceStake = matchweek.UNIT_PRICE();
+        uint256 bobStake = matchweek.UNIT_PRICE() * 2;
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), aliceStake);
         vm.prank(BOB);
@@ -603,7 +603,7 @@ contract MatchweekTest is Test {
 
     // Alice is in the tree at tier 7 but tries to claim tier 10 — wrong proof, fails at Merkle.
     function testRevert_claimPrize_wrongTierProof() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -626,7 +626,7 @@ contract MatchweekTest is Test {
     // Alice is in the tree at tier 7 but admin set totalStakePerTier[7-6] = 0 by mistake
     // → contract computes prizePerTier[7-6] = 0 → EmptyTierPool.
     function testRevert_claimPrize_emptyTierPool() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -645,7 +645,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_distributionNotCommitted() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -655,7 +655,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_notPredictionOwner() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -667,7 +667,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_alreadyClaimed() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -682,7 +682,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_invalidTier_tooLow() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -694,7 +694,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_invalidTier_tooHigh() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -706,7 +706,7 @@ contract MatchweekTest is Test {
     }
 
     function testRevert_claimPrize_invalidProof() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -723,7 +723,7 @@ contract MatchweekTest is Test {
     ////
 
     function test_commitDistribution_unallocatedFundsCarryPool() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -740,7 +740,7 @@ contract MatchweekTest is Test {
     }
 
     function test_commitDistribution_perfectTenReleasesCarryPool() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
 
         // Deploy the second matchweek and have Bob enter before time is warped forward, since
         // {initialize} requires a future predictionDeadline.
@@ -799,7 +799,7 @@ contract MatchweekTest is Test {
     ////
 
     function test_commitDistribution_feeGoesToTreasury() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -816,7 +816,7 @@ contract MatchweekTest is Test {
 
     /// @dev The whitepaper requires the carry pool to hold unawarded prize money only, never fees.
     function test_commitDistribution_carryPoolExcludesFee() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
@@ -832,7 +832,7 @@ contract MatchweekTest is Test {
 
     /// @dev Every staked unit must end up in exactly one of: tier prizes, carry pool, treasury.
     function test_commitDistribution_reconcilesToTotalStaked() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
         vm.prank(ALICE);
@@ -862,7 +862,7 @@ contract MatchweekTest is Test {
 
     /// @dev Integer-division dust must fall to the carry pool, never inflate the fee.
     function test_commitDistribution_feeNeverExceedsItsPercentage() public {
-        uint256 stake = matchweek.MIN_STAKE_AMOUNT();
+        uint256 stake = matchweek.UNIT_PRICE();
         vm.prank(ALICE);
         matchweek.submitPrediction(_buildValidPredictions(), stake);
 
