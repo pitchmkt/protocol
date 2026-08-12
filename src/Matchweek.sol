@@ -78,6 +78,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     bool private _initialized;
     uint256 public predictionCount;
     mapping(uint256 predictionId => address user) public predictionOwner;
+    /// @notice Commitment to the ten submitted masks. Write-only on-chain: the contract never
+    ///         scores, so this exists for off-chain verification against {PredictionSubmitted}.
     mapping(uint256 predictionId => bytes32 hash) public predictionHash;
     /// @notice Number of columns a prediction spans: the product of its ten masks' popcounts.
     mapping(uint256 predictionId => uint256 columns) public predictionColumns;
@@ -333,10 +335,12 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      most three bits bound it at `3**10 = 59,049`. The cost is not chosen by the caller: it
     ///      is `UNIT_PRICE * columns`, so the same coverage always costs the same, and it can never
     ///      fall below {UNIT_PRICE} since a prediction spans at least one column.
-    ///      The full mask array is not persisted in contract storage — only its hash,
-    ///      recoverable from the {PredictionSubmitted} event — so {claimPrize} can verify that
-    ///      predictions presented on-chain match what was originally submitted. Pulls the cost from
-    ///      the caller via `transferFrom`, which requires prior `approve`.
+    ///      The full mask array is not persisted in contract storage — only its hash in
+    ///      {predictionHash}, with the masks themselves recoverable from the
+    ///      {PredictionSubmitted} event. Nothing on-chain reads that hash: scoring is off-chain,
+    ///      and the hash is what lets anyone check the masks the scorer consumed against what the
+    ///      contract recorded. Pulls the cost from the caller via `transferFrom`, which requires
+    ///      prior `approve`.
     /// @param masks Ten pick masks, one per match: bit0 home, bit1 draw, bit2 away, so a single is
     ///              1, 2 or 4, a double 3, 5 or 6, and a triple 7.
     /// @return predictionId Unique, sequential identifier assigned to this prediction.
