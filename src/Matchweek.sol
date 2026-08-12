@@ -8,7 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {CarryPool} from "./CarryPool.sol";
 import {Disputes} from "./Disputes.sol";
-import {PrizeConfig} from "./PrizeConfig.sol";
+import {MarketConfig} from "./MarketConfig.sol";
 import {Treasury} from "./Treasury.sol";
 
 /// @title Matchweek
@@ -38,24 +38,24 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Price of a single column: 2 USDC (6 decimals).
-    /// @dev A prediction pays this price per column it covers, so its cost scales with how many
-    ///      outcome combinations it plays. Each winner's prize share is proportional to what its
-    ///      winning columns cost (see {claimPrize}), not split evenly by winner count.
-    uint256 public constant UNIT_PRICE = 2_000_000;
+    /// @dev Re-exported from {MarketConfig.UNIT_PRICE} so callers can read the price from the ABI
+    ///      without importing the library.
+    uint256 public constant UNIT_PRICE = MarketConfig.UNIT_PRICE;
 
     /// @notice Number of matches per matchweek.
-    uint256 public constant MATCH_COUNT = 10;
+    /// @dev Re-exported from {MarketConfig.MATCH_COUNT}, for the same reason as {UNIT_PRICE}.
+    uint256 public constant MATCH_COUNT = MarketConfig.MATCH_COUNT;
 
     /// @dev Upper bound for outcome validation, derived from the {Outcome} enum.
     uint8 private constant MAX_OUTCOME = uint8(type(Outcome).max);
 
     /// @dev Mask validation bounds: at least one {Outcome} bit set (a single), at most all three
-    ///      (a triple). A mask of 0 marks nothing, and above 7 a bit maps to no outcome.
+    ///      (a triple). A mask of 0 marks nothing, and above {MAX_MASK} a bit maps to no outcome.
+    ///      MAX_MASK is 0b111 — one bit per {Outcome} member. Deriving it from the enum would need
+    ///      a truncating cast, since Solidity types `2**x` as `uint256`, so an {Outcome} member
+    ///      added here also has to be reflected in this literal and in {_popcount}.
     uint8 private constant MIN_MASK = 1;
     uint8 private constant MAX_MASK = 7;
-
-    /// @dev Index into the tier arrays for the perfect-ten tier (tier 10 → index 4).
-    uint256 private constant TIER10_INDEX = PrizeConfig.TIER_COUNT - 1;
 
     /// @notice ERC20 token predictions are paid in, shared by every matchweek clone.
     IERC20 public immutable STABLECOIN;
@@ -74,6 +74,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     uint32 public matchweekId;
     uint40 public predictionDeadline;
+    /// @dev Length is {MATCH_COUNT}, spelled as a literal because Solidity rejects a
+    ///      library-qualified constant as an array length. Pinned by `MarketConfig.t.sol`.
     Match[10] private _matches;
     bool private _initialized;
     uint256 public predictionCount;
@@ -90,9 +92,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
     bool public resultsPublished;
 
     bytes32 public claimsRoot;
-    /// @dev Tiers 6–10 are stored at indices 0–4 (index = tier - {PrizeConfig.MIN_WINNING_TIER}).
+    /// @dev Tiers 6–10 are stored at indices 0–4 (index = tier - {MarketConfig.MIN_WINNING_TIER}).
     ///      totalStakePerTier is the denominator for each winning prediction's proportional share:
     ///      the sum of the columns that reached the tier, priced at {UNIT_PRICE}.
+    ///      Both lengths are {MarketConfig.TIER_COUNT}, spelled as a literal for the reason given
+    ///      on {_matches}.
     uint256[5] public totalStakePerTier;
     uint256[5] public prizePerTier;
     /// @dev Transferred to {CARRY_POOL} at the end of {commitDistribution}.
@@ -410,9 +414,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Each Merkle leaf is `keccak256(abi.encode(predictionId, columnsPerTier))` — one leaf
     ///      per winning prediction, carrying how many of its columns reached each tier.
     ///      Tiers 6–10 map to indices 0–4 (`index = tier - 6`).
-    ///      Prize pools are computed on-chain from {PrizeConfig} percentages and {totalStaked}:
+    ///      Prize pools are computed on-chain from {MarketConfig} percentages and {totalStaked}:
     ///      tiers with no winners contribute their percentage to {unallocated} instead.
-    ///      {PrizeConfig.PROTOCOL_FEE_PCT} of the total staked is retained as {protocolFee} and
+    ///      {MarketConfig.PROTOCOL_FEE_PCT} of the total staked is retained as {protocolFee} and
     ///      transferred to {TREASURY}. {unallocated} is the remainder after prizes and fee, so the
     ///      carry pool only ever receives unawarded prize money — never fee revenue.
     ///      If tier 10 has winners (a perfect ten), {CARRY_POOL} releases its entire accumulated
@@ -437,34 +441,28 @@ contract Matchweek is Ownable, ReentrancyGuard {
         claimsRoot = claimsRoot_;
         totalStakePerTier = totalStakePerTier_;
 
-        uint256[5] memory pcts = [
-            PrizeConfig.TIER6_PRIZE_PCT,
-            PrizeConfig.TIER7_PRIZE_PCT,
-            PrizeConfig.TIER8_PRIZE_PCT,
-            PrizeConfig.TIER9_PRIZE_PCT,
-            PrizeConfig.TIER10_PRIZE_PCT
-        ];
+        uint256[5] memory pcts = MarketConfig.tierPrizePcts();
 
         uint256 totalAllocated;
-        for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
+        for (uint256 i = 0; i < MarketConfig.TIER_COUNT; ++i) {
             if (totalStakePerTier_[i] > 0) {
-                uint256 tierPrize = totalStaked * pcts[i] / PrizeConfig.PCT_DENOMINATOR;
+                uint256 tierPrize = totalStaked * pcts[i] / MarketConfig.PCT_DENOMINATOR;
                 prizePerTier[i] = tierPrize;
                 totalAllocated += tierPrize;
             }
         }
-        uint256 fee = totalStaked * PrizeConfig.PROTOCOL_FEE_PCT / PrizeConfig.PCT_DENOMINATOR;
+        uint256 fee = totalStaked * MarketConfig.PROTOCOL_FEE_PCT / MarketConfig.PCT_DENOMINATOR;
         protocolFee = fee;
         // Remainder after prizes and fee: the percentages of tiers that had no winners, plus any
         // dust left by integer division. Dust falls here rather than into the fee, so the protocol
-        // never collects more than {PrizeConfig.PROTOCOL_FEE_PCT}.
+        // never collects more than {MarketConfig.PROTOCOL_FEE_PCT}.
         unallocated = totalStaked - totalAllocated - fee;
         distributionCommitted = true;
 
-        if (totalStakePerTier_[TIER10_INDEX] > 0) {
+        if (totalStakePerTier_[MarketConfig.PERFECT_TIER_INDEX] > 0) {
             uint256 released = CARRY_POOL.release(matchweekId);
             if (released > 0) {
-                prizePerTier[TIER10_INDEX] += released;
+                prizePerTier[MarketConfig.PERFECT_TIER_INDEX] += released;
             }
         }
 
@@ -516,8 +514,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
         if (!MerkleProof.verify(proof, claimsRoot, leaf)) revert InvalidProof(predictionId);
 
         uint256 share;
-        for (uint8 tier = PrizeConfig.MIN_WINNING_TIER; tier <= PrizeConfig.MAX_WINNING_TIER; ++tier) {
-            uint256 idx = tier - PrizeConfig.MIN_WINNING_TIER;
+        for (uint8 tier = MarketConfig.MIN_WINNING_TIER; tier <= MarketConfig.MAX_WINNING_TIER; ++tier) {
+            uint256 idx = tier - MarketConfig.MIN_WINNING_TIER;
             uint256 columns = columnsPerTier[idx];
             if (columns == 0) continue;
             uint256 tierStake = totalStakePerTier[idx];
