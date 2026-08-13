@@ -54,7 +54,7 @@ The growth is multiplicative, not additive: a double costs double, a triple cost
 
 Every column a prediction spans is scored on its own and lands in exactly one prize tier, set by how many of its ten outcomes proved correct — the scale of tiers and what each pays is in the next section. One prediction can therefore end the matchday in several tiers at the same time.
 
-Take a prediction with nine singles and one double, all nine singles correct, the double covering home win and draw on the tenth match. That prediction spans two columns and cost two units. If the match ends in a draw, one column has all ten outcomes right and the other has nine: the prediction wins the top tier — carry pool included — and tier nine, and claims both.
+Take a prediction with nine singles and one double, all nine singles correct, the double covering home win and draw on the tenth match. That prediction spans two columns and cost two units. If the match ends in a draw, one column has all ten outcomes right and the other has nine: the prediction wins the top tier — carry pool included — and tier nine, and collects both in one claim.
 
 Width does not always split the result that way. If that same match ends in an away win, neither branch of the double hit: both columns finish with nine correct, both land in tier nine, and both are paid. The double bought two chances at the top tier, not a guarantee of one.
 
@@ -81,7 +81,7 @@ Within a tier, the prize is split proportionally to winning columns: a predictio
 
 If a tier has no winners, its entire percentage goes to the carry pool. It is never redistributed to the tiers that did have winners, so no player's prize grows because someone else's tier was left empty.
 
-Prizes are claimed per tier, not per prediction: a prediction that won in three tiers claims each of them separately. Winners have thirty days to claim. Anything unclaimed after that period is automatically added to the carry pool.
+Prizes are claimed per prediction, not per tier: a prediction that won in three tiers makes a single claim, paid the sum of what each of those tiers owes it. Winners have thirty days to claim. Anything unclaimed after that period is automatically added to the carry pool.
 
 ---
 
@@ -161,5 +161,5 @@ The most consistent and accurate players earn a rank that identifies them across
 4. Once all matches are finished, official results are published
 5. A 48-hour window opens for challenging results
 6. The pool is distributed automatically among the winning columns in each tier
-7. Winners claim each tier they won within thirty days
+7. Winners have thirty days to claim, each winning prediction paid for all its tiers at once
 8. Anything unclaimed feeds the carry pool for the next matchday
