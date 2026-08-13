@@ -72,37 +72,66 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///         challenges against published results, shared by every matchweek clone.
     Disputes public immutable DISPUTES;
 
+    /// @notice Unique identifier for this matchweek.
     uint32 public matchweekId;
+
+    /// @notice Timestamp from which no more predictions are accepted.
     uint40 public predictionDeadline;
-    /// @dev Length is {MATCH_COUNT}, spelled as a literal because Solidity rejects a
-    ///      library-qualified constant as an array length. Pinned by `MarketConfig.t.sol`.
+
+    /// @dev The ten matches, read as a whole through {getMatches}. Length is {MATCH_COUNT},
+    ///      spelled as a literal because Solidity rejects a library-qualified constant as an
+    ///      array length. Pinned by `MarketConfig.t.sol`.
     Match[10] private _matches;
+
+    /// @dev Set in the constructor to lock the implementation, and once per clone in {initialize}.
     bool private _initialized;
+
+    /// @notice Number of predictions submitted, and the id the next one will be assigned.
     uint256 public predictionCount;
+
+    /// @notice Address allowed to claim a prediction's prizes.
     mapping(uint256 predictionId => address user) public predictionOwner;
+
     /// @notice Commitment to the ten submitted masks. Write-only on-chain: the contract never
     ///         scores, so this exists for off-chain verification against {PredictionSubmitted}.
     mapping(uint256 predictionId => bytes32 hash) public predictionHash;
+
     /// @notice Number of columns a prediction spans: the product of its ten masks' popcounts.
     mapping(uint256 predictionId => uint256 columns) public predictionColumns;
+
     /// @notice Sum of every prediction's cost in this matchweek.
     uint256 public totalStaked;
 
+    /// @dev The ten final outcomes, read as a whole through {getOutcomes}. Length is
+    ///      {MATCH_COUNT}, spelled as a literal for the reason given on {_matches}.
     uint8[10] private _outcomes;
+
+    /// @notice Whether the admin has published the outcomes and opened the dispute window.
     bool public resultsPublished;
 
+    /// @notice Merkle root over the (predictionId, columnsPerTier) leaves {claimPrize} verifies.
     bytes32 public claimsRoot;
-    /// @dev Tiers 6–10 are stored at indices 0–4 (index = tier - {MarketConfig.MIN_WINNING_TIER}).
-    ///      totalStakePerTier is the denominator for each winning prediction's proportional share:
-    ///      the sum of the columns that reached the tier, priced at {UNIT_PRICE}.
-    ///      Both lengths are {MarketConfig.TIER_COUNT}, spelled as a literal for the reason given
-    ///      on {_matches}.
+
+    /// @notice Denominator for each winning prediction's proportional share: the sum of the
+    ///         columns that reached the tier, priced at {UNIT_PRICE}.
+    /// @dev Tiers 6–10 are stored at indices 0–4 (index = tier - {MarketConfig.MIN_WINNING_TIER},
+    ///      see {_tierAt}). Length is {MarketConfig.TIER_COUNT}, spelled as a literal for the
+    ///      reason given on {_matches}.
     uint256[5] public totalStakePerTier;
+
+    /// @notice Prize pool allocated to each tier, computed on-chain from {MarketConfig}.
+    /// @dev Indexed like {totalStakePerTier}.
     uint256[5] public prizePerTier;
+
+    /// @notice Prize money no tier claimed, plus the dust left by integer division.
     /// @dev Transferred to {CARRY_POOL} at the end of {commitDistribution}.
     uint256 public unallocated;
+
+    /// @notice Fee retained by the protocol out of {totalStaked}.
     /// @dev Transferred to {TREASURY} at the end of {commitDistribution}.
     uint256 public protocolFee;
+
+    /// @notice Whether the admin has committed the distribution, unlocking {claimPrize}.
     bool public distributionCommitted;
 
     /// @notice Whether a prediction has been paid. One flag covers every tier it reached, since
@@ -334,11 +363,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     /// @notice Submits a prediction for this matchweek, charging {UNIT_PRICE} per column covered.
     /// @dev Reverts if the prediction deadline has passed or any mask is outside 1–7. Multiple
-    ///      predictions per address are allowed. Columns multiply rather than add, so the
-    ///      prediction spans the product of its masks' popcounts — uncapped, since ten masks of at
-    ///      most three bits bound it at `3**10 = 59,049`. The cost is not chosen by the caller: it
-    ///      is `UNIT_PRICE * columns`, so the same coverage always costs the same, and it can never
-    ///      fall below {UNIT_PRICE} since a prediction spans at least one column.
+    ///      predictions per address are allowed. The cost is not chosen by the caller: it is
+    ///      `UNIT_PRICE * columns` for the columns the masks span (see {_columnsSpanned}), so the
+    ///      same coverage always costs the same, and it can never fall below {UNIT_PRICE} since a
+    ///      prediction spans at least one column.
     ///      The full mask array is not persisted in contract storage — only its hash in
     ///      {predictionHash}, with the masks themselves recoverable from the
     ///      {PredictionSubmitted} event. Nothing on-chain reads that hash: scoring is off-chain,
@@ -354,12 +382,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         duringPredictionWindow
         returns (uint256 predictionId)
     {
-        uint256 columns = 1;
-        for (uint256 i = 0; i < MATCH_COUNT; ++i) {
-            uint8 mask = masks[i];
-            if (mask < MIN_MASK || mask > MAX_MASK) revert InvalidMask(i, mask);
-            columns *= _popcount(mask);
-        }
+        uint256 columns = _columnsSpanned(masks);
         uint256 cost = UNIT_PRICE * columns;
 
         predictionId = predictionCount++;
@@ -384,9 +407,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         afterPredictionDeadline
         whenResultsNotPublished
     {
-        for (uint256 i = 0; i < MATCH_COUNT; ++i) {
-            if (outcomes[i] > MAX_OUTCOME) revert InvalidOutcome(i, outcomes[i]);
-        }
+        _validateOutcomes(outcomes);
 
         _outcomes = outcomes;
         resultsPublished = true;
@@ -401,9 +422,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      0, 1, or 2.
     /// @param correctedOutcomes The corrected ten outcomes (0=home, 1=draw, 2=away).
     function applyDisputeCorrection(uint8[10] calldata correctedOutcomes) external onlyDisputes {
-        for (uint256 i = 0; i < MATCH_COUNT; ++i) {
-            if (correctedOutcomes[i] > MAX_OUTCOME) revert InvalidOutcome(i, correctedOutcomes[i]);
-        }
+        _validateOutcomes(correctedOutcomes);
 
         _outcomes = correctedOutcomes;
 
@@ -441,16 +460,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         claimsRoot = claimsRoot_;
         totalStakePerTier = totalStakePerTier_;
 
-        uint256[5] memory pcts = MarketConfig.tierPrizePcts();
-
-        uint256 totalAllocated;
-        for (uint256 i = 0; i < MarketConfig.TIER_COUNT; ++i) {
-            if (totalStakePerTier_[i] > 0) {
-                uint256 tierPrize = totalStaked * pcts[i] / MarketConfig.PCT_DENOMINATOR;
-                prizePerTier[i] = tierPrize;
-                totalAllocated += tierPrize;
-            }
-        }
+        uint256 totalAllocated = _allocateTierPrizes(totalStakePerTier_);
         uint256 fee = totalStaked * MarketConfig.PROTOCOL_FEE_PCT / MarketConfig.PCT_DENOMINATOR;
         protocolFee = fee;
         // Remainder after prizes and fee: the percentages of tiers that had no winners, plus any
@@ -460,20 +470,13 @@ contract Matchweek is Ownable, ReentrancyGuard {
         distributionCommitted = true;
 
         if (totalStakePerTier_[MarketConfig.PERFECT_TIER_INDEX] > 0) {
-            uint256 released = CARRY_POOL.release(matchweekId);
-            if (released > 0) {
-                prizePerTier[MarketConfig.PERFECT_TIER_INDEX] += released;
-            }
+            _addCarryPoolToPerfectTierPrize();
         }
-
         if (fee > 0) {
-            STABLECOIN.safeTransfer(address(TREASURY), fee);
-            TREASURY.deposit(matchweekId, fee);
+            _sendProtocolFeeToTreasury(fee);
         }
-
         if (unallocated > 0) {
-            STABLECOIN.safeTransfer(address(CARRY_POOL), unallocated);
-            CARRY_POOL.fund(matchweekId, unallocated);
+            _sendUnallocatedToCarryPool(unallocated);
         }
 
         emit DistributionCommitted(matchweekId, claimsRoot_, prizePerTier, unallocated, fee);
@@ -484,9 +487,8 @@ contract Matchweek is Ownable, ReentrancyGuard {
     ///      owner, the prediction has already been claimed, or the Merkle proof is invalid.
     ///      A prediction playing multiples reaches several tiers at once — one column may hit ten
     ///      while another hits nine — so the leaf carries the whole per-tier vector and the payout
-    ///      is the sum over tiers of `prizePerTier[i] * columnsPerTier[i] * UNIT_PRICE
-    ///      / totalStakePerTier[i]`. The vector needs no validation of its own: only the one
-    ///      committed in {claimsRoot} verifies.
+    ///      sums what each tier owes it (see {_payoutFor}). The vector needs no validation of its
+    ///      own: only the one committed in {claimsRoot} verifies.
     /// @param predictionId    Unique identifier of the prediction to claim.
     /// @param columnsPerTier  How many of this prediction's columns reached each tier
     ///                        (indices 0–4 = tiers 6–10). Zero for tiers it did not reach.
@@ -500,32 +502,14 @@ contract Matchweek is Ownable, ReentrancyGuard {
         if (msg.sender != predictionOwner[predictionId]) revert NotPredictionOwner(predictionId);
         if (claimed[predictionId]) revert AlreadyClaimed(predictionId);
 
-        // Double-hash the leaf to separate it from the internal Merkle node domain, which
-        // prevents second-preimage attacks. The pre-image is the predictionId followed by the
-        // five column counts, which is exactly abi.encode's layout for them.
-        bytes32 leaf;
-        assembly ("memory-safe") {
-            let ptr := mload(0x40)
-            mstore(ptr, predictionId)
-            calldatacopy(add(ptr, 0x20), columnsPerTier, 0xa0)
-            mstore(ptr, keccak256(ptr, 0xc0))
-            leaf := keccak256(ptr, 0x20)
-        }
+        bytes32 leaf = _claimLeaf(predictionId, columnsPerTier);
         if (!MerkleProof.verify(proof, claimsRoot, leaf)) revert InvalidProof(predictionId);
 
-        uint256 share;
-        for (uint8 tier = MarketConfig.MIN_WINNING_TIER; tier <= MarketConfig.MAX_WINNING_TIER; ++tier) {
-            uint256 idx = tier - MarketConfig.MIN_WINNING_TIER;
-            uint256 columns = columnsPerTier[idx];
-            if (columns == 0) continue;
-            uint256 tierStake = totalStakePerTier[idx];
-            if (tierStake == 0) revert EmptyTierPool(tier);
-            share += prizePerTier[idx] * (columns * UNIT_PRICE) / tierStake;
-        }
+        uint256 payout = _payoutFor(columnsPerTier);
 
         claimed[predictionId] = true;
-        STABLECOIN.safeTransfer(msg.sender, share);
-        emit PrizeClaimed(matchweekId, predictionId, msg.sender, share, columnsPerTier);
+        STABLECOIN.safeTransfer(msg.sender, payout);
+        emit PrizeClaimed(matchweekId, predictionId, msg.sender, payout, columnsPerTier);
     }
 
     /// @notice Returns all ten match outcomes published by the admin.
@@ -549,6 +533,44 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @return The amount of stablecoin the prediction cost when it was submitted.
     function predictionCost(uint256 predictionId) public view returns (uint256) {
         return UNIT_PRICE * predictionColumns[predictionId];
+    }
+
+    /// @dev Writes the prize pool of every tier that has winning columns, and returns their sum.
+    ///      A tier with no winners is left at zero, so its percentage stays in {totalStaked} and
+    ///      ends up in {unallocated}.
+    /// @param totalStakePerTier_ Winning stake per tier; zero means the tier had no winners.
+    /// @return totalAllocated Sum of the prize pools written to {prizePerTier}.
+    function _allocateTierPrizes(uint256[5] calldata totalStakePerTier_) internal returns (uint256 totalAllocated) {
+        uint256[5] memory prizePct = MarketConfig.tierPrizePcts();
+        for (uint256 tierIndex = 0; tierIndex < MarketConfig.TIER_COUNT; ++tierIndex) {
+            if (totalStakePerTier_[tierIndex] == 0) continue;
+            uint256 tierPrize = totalStaked * prizePct[tierIndex] / MarketConfig.PCT_DENOMINATOR;
+            prizePerTier[tierIndex] = tierPrize;
+            totalAllocated += tierPrize;
+        }
+    }
+
+    /// @dev Releases the whole carry pool into this matchweek and adds it on top of the
+    ///      perfect-score tier's share of {totalStaked}. A release from an empty pool is a no-op.
+    function _addCarryPoolToPerfectTierPrize() internal {
+        uint256 released = CARRY_POOL.release(matchweekId);
+        if (released > 0) {
+            prizePerTier[MarketConfig.PERFECT_TIER_INDEX] += released;
+        }
+    }
+
+    /// @dev Moves the protocol fee out to {TREASURY} and records it there.
+    /// @param fee Amount retained by the protocol.
+    function _sendProtocolFeeToTreasury(uint256 fee) internal {
+        STABLECOIN.safeTransfer(address(TREASURY), fee);
+        TREASURY.deposit(matchweekId, fee);
+    }
+
+    /// @dev Moves the unawarded prize money out to {CARRY_POOL}, seeding the next carry cycle.
+    /// @param amount Prize money no tier claimed, plus rounding dust.
+    function _sendUnallocatedToCarryPool(uint256 amount) internal {
+        STABLECOIN.safeTransfer(address(CARRY_POOL), amount);
+        CARRY_POOL.fund(matchweekId, amount);
     }
 
     function _duringPredictionWindow() internal view {
@@ -581,6 +603,73 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     function _whenDisputeSettled() internal view {
         if (!DISPUTES.isSettled(address(this))) revert DisputeNotSettled();
+    }
+
+    /// @dev Sums what every tier owes a prediction: each tier's pool times the share its winning
+    ///      columns paid into that tier's total stake. Tiers the prediction did not reach are
+    ///      skipped, so an all-zero vector pays nothing rather than reverting.
+    /// @param columnsPerTier Columns the prediction placed in each tier, as committed in its leaf.
+    /// @return payout Total stablecoin owed to the prediction across every tier.
+    function _payoutFor(uint256[5] calldata columnsPerTier) internal view returns (uint256 payout) {
+        for (uint256 tierIndex = 0; tierIndex < MarketConfig.TIER_COUNT; ++tierIndex) {
+            uint256 columns = columnsPerTier[tierIndex];
+            if (columns == 0) continue;
+            uint256 tierStake = totalStakePerTier[tierIndex];
+            if (tierStake == 0) revert EmptyTierPool(_tierAt(tierIndex));
+            payout += prizePerTier[tierIndex] * (columns * UNIT_PRICE) / tierStake;
+        }
+    }
+
+    /// @dev Validates every mask and returns how many columns the ten of them span. Columns
+    ///      multiply rather than add, so the count is the product of the masks' popcounts —
+    ///      uncapped, since ten masks of at most three bits bound it at `3**10 = 59,049`.
+    /// @param masks Ten pick masks, one per match.
+    /// @return columns Number of columns the prediction spans, at least one.
+    function _columnsSpanned(uint8[10] calldata masks) internal pure returns (uint256 columns) {
+        columns = 1;
+        for (uint256 i = 0; i < MATCH_COUNT; ++i) {
+            uint8 mask = masks[i];
+            if (mask < MIN_MASK || mask > MAX_MASK) revert InvalidMask(i, mask);
+            columns *= _popcount(mask);
+        }
+    }
+
+    /// @dev Reverts unless all ten outcomes name an {Outcome} member.
+    /// @param outcomes The ten outcomes to check (0=home, 1=draw, 2=away).
+    function _validateOutcomes(uint8[10] calldata outcomes) internal pure {
+        for (uint256 i = 0; i < MATCH_COUNT; ++i) {
+            if (outcomes[i] > MAX_OUTCOME) revert InvalidOutcome(i, outcomes[i]);
+        }
+    }
+
+    /// @dev The leaf {claimsRoot} commits to for one winning prediction.
+    /// @param predictionId   Unique identifier of the prediction.
+    /// @param columnsPerTier Columns the prediction placed in each tier.
+    /// @return leaf The Merkle leaf for this (prediction, column vector) pair.
+    function _claimLeaf(uint256 predictionId, uint256[5] calldata columnsPerTier) internal pure returns (bytes32 leaf) {
+        // Double-hash the leaf to separate it from the internal Merkle node domain, which
+        // prevents second-preimage attacks. The pre-image is the predictionId followed by the
+        // five column counts, which is exactly abi.encode's layout for them. Hashed in assembly
+        // because the Solidity spelling of the same expression allocates memory the hash does not
+        // need, which `forge lint` flags as `asm-keccak256`.
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, predictionId)
+            calldatacopy(add(ptr, 0x20), columnsPerTier, 0xa0)
+            mstore(ptr, keccak256(ptr, 0xc0))
+            leaf := keccak256(ptr, 0x20)
+        }
+    }
+
+    /// @dev Maps a per-tier array index back to the accuracy tier it stands for (index 0 → tier 6).
+    /// @param tierIndex Index into the per-tier arrays, below {MarketConfig.TIER_COUNT}.
+    /// @return The accuracy tier, between {MarketConfig.MIN_WINNING_TIER} and
+    ///         {MarketConfig.MAX_WINNING_TIER}.
+    function _tierAt(uint256 tierIndex) internal pure returns (uint8) {
+        // casting to 'uint8' is safe because tierIndex is bounded by MarketConfig.TIER_COUNT,
+        // whose last index lands on MAX_WINNING_TIER, itself a uint8.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return MarketConfig.MIN_WINNING_TIER + uint8(tierIndex);
     }
 
     /// @dev Counts only the three {Outcome} bits, which is exact for masks validated to 1–7.
