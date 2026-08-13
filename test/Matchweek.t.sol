@@ -9,7 +9,7 @@ import {CarryPool} from "../src/CarryPool.sol";
 import {DisputeConfig} from "../src/DisputeConfig.sol";
 import {Disputes} from "../src/Disputes.sol";
 import {Matchweek} from "../src/Matchweek.sol";
-import {PrizeConfig} from "../src/PrizeConfig.sol";
+import {MarketConfig} from "../src/MarketConfig.sol";
 import {Treasury} from "../src/Treasury.sol";
 
 contract MatchweekTest is Test {
@@ -59,6 +59,29 @@ contract MatchweekTest is Test {
         stablecoin.mint(ALICE, 1_000_000_000);
         vm.prank(ALICE);
         stablecoin.approve(address(matchweek), type(uint256).max);
+    }
+
+    /// @notice The fixed-array lengths hardcoded in {Matchweek} must equal the config constants.
+    /// @dev Solidity rejects a library-qualified constant as an array length, so `Match[10]`,
+    ///      `uint8[10]` and `uint256[5]` are spelled as literals rather than derived from
+    ///      {MarketConfig}. That makes them the one place the config cannot enforce itself, so the
+    ///      pairing is asserted here instead. The per-tier arrays have no whole-array getter, so
+    ///      their width is probed through the generated index getter: the last valid index must
+    ///      answer and the next one must revert.
+    function test_arrayLengthsMatchMarketConfig() public view {
+        assertEq(matchweek.getMatches().length, MarketConfig.MATCH_COUNT, "_matches spans a matchweek");
+        assertEq(matchweek.getOutcomes().length, MarketConfig.MATCH_COUNT, "_outcomes spans a matchweek");
+
+        _assertTierArrayWidth("prizePerTier(uint256)");
+        _assertTierArrayWidth("totalStakePerTier(uint256)");
+    }
+
+    /// @notice The constants re-exported on {Matchweek}'s ABI must match {MarketConfig}.
+    /// @dev Callers and the indexer read the price and the matchweek size off the contract rather
+    ///      than the library, so the two must not be allowed to diverge.
+    function test_reexportedConstantsMatchMarketConfig() public view {
+        assertEq(matchweek.UNIT_PRICE(), MarketConfig.UNIT_PRICE, "UNIT_PRICE is re-exported verbatim");
+        assertEq(matchweek.MATCH_COUNT(), MarketConfig.MATCH_COUNT, "MATCH_COUNT is re-exported verbatim");
     }
 
     function test_deploy_emitsMatchweekCreated() public {
@@ -301,6 +324,24 @@ contract MatchweekTest is Test {
         return Matchweek(Clones.clone(_implementation));
     }
 
+    /// @dev Asserts a per-tier public array holds exactly {MarketConfig.TIER_COUNT} slots, by
+    ///      calling its generated index getter at the last valid index and one past it. A
+    ///      fixed-size array's getter reverts with a bounds panic out of range, so the pair of
+    ///      answers brackets the width exactly.
+    /// @param getter Signature of the generated getter, e.g. `"prizePerTier(uint256)"`.
+    function _assertTierArrayWidth(string memory getter) internal view {
+        uint256 lastIndex = MarketConfig.TIER_COUNT - 1;
+
+        assertTrue(_indexAnswers(getter, lastIndex), string.concat(getter, " must hold TIER_COUNT slots"));
+        assertFalse(_indexAnswers(getter, lastIndex + 1), string.concat(getter, " must hold no more slots"));
+    }
+
+    /// @dev Whether a generated index getter answers for `index`, as opposed to reverting with the
+    ///      bounds panic a fixed-size array raises past its end.
+    function _indexAnswers(string memory getter, uint256 index) internal view returns (bool answers) {
+        (answers,) = address(matchweek).staticcall(abi.encodeWithSignature(getter, index));
+    }
+
     /// @dev Builds a valid set of ten outcomes (alternating home/draw/away).
     function _buildValidOutcomes() internal pure returns (uint8[10] memory outcomes) {
         for (uint256 i = 0; i < 10; ++i) {
@@ -474,8 +515,8 @@ contract MatchweekTest is Test {
 
         // prizePerTier[0] = cost * TIER6_PRIZE_PCT / 100, fee = cost * PROTOCOL_FEE_PCT / 100,
         // unallocated = remainder after both.
-        uint256 expectedPrize = cost * PrizeConfig.TIER6_PRIZE_PCT / 100;
-        uint256 expectedFee = cost * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedPrize = cost * MarketConfig.TIER6_PRIZE_PCT / 100;
+        uint256 expectedFee = cost * MarketConfig.PROTOCOL_FEE_PCT / 100;
         uint256 expectedUnallocated = cost - expectedPrize - expectedFee;
 
         uint256[5] memory expectedPrizes;
@@ -504,10 +545,10 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        uint256 expectedFee = cost * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedFee = cost * MarketConfig.PROTOCOL_FEE_PCT / 100;
         assertEq(matchweek.unallocated(), cost - expectedFee);
         assertEq(matchweek.protocolFee(), expectedFee);
-        for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
+        for (uint256 i = 0; i < MarketConfig.TIER_COUNT; ++i) {
             assertEq(matchweek.prizePerTier(i), 0);
         }
     }
@@ -530,7 +571,7 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        uint256 expectedFee = (aliceCost + bobCost) * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedFee = (aliceCost + bobCost) * MarketConfig.PROTOCOL_FEE_PCT / 100;
         assertEq(matchweek.protocolFee(), expectedFee);
     }
 
@@ -575,12 +616,12 @@ contract MatchweekTest is Test {
         bytes32 leaf = _merkleLeaf(predictionId, columns);
 
         uint256[5] memory totalStakePerTier_;
-        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = cost;
+        totalStakePerTier_[tier - MarketConfig.MIN_WINNING_TIER] = cost;
 
         vm.prank(ADMIN);
         matchweek.commitDistribution(leaf, totalStakePerTier_);
 
-        uint256 expectedShare = cost * PrizeConfig.TIER7_PRIZE_PCT / 100; // tier 7 = index 1
+        uint256 expectedShare = cost * MarketConfig.TIER7_PRIZE_PCT / 100; // tier 7 = index 1
         uint256 balanceBefore = stablecoin.balanceOf(ALICE);
 
         vm.expectEmit(true, true, true, true);
@@ -641,8 +682,8 @@ contract MatchweekTest is Test {
         _commitTwoPredictionDistribution(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
 
         // Tier 8 (index 2) = 15% of totalStaked, split evenly since both reach it with one column.
-        uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
-        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 tierPool = matchweek.prizePerTier(8 - MarketConfig.MIN_WINNING_TIER);
+        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - MarketConfig.MIN_WINNING_TIER);
 
         (bytes32[] memory proofAlice, bytes32[] memory proofBob) =
             _buildTwoPredictionProofs(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
@@ -674,8 +715,8 @@ contract MatchweekTest is Test {
         _publishResults();
         _commitTwoPredictionDistribution(0, _columnsAt(8, 1), 1, _columnsAt(8, 2));
 
-        uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
-        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 tierPool = matchweek.prizePerTier(8 - MarketConfig.MIN_WINNING_TIER);
+        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - MarketConfig.MIN_WINNING_TIER);
         (bytes32[] memory proofAlice, bytes32[] memory proofBob) =
             _buildTwoPredictionProofs(0, _columnsAt(8, 1), 1, _columnsAt(8, 2));
 
@@ -709,8 +750,8 @@ contract MatchweekTest is Test {
         _publishResults();
         _commitTwoPredictionDistribution(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
 
-        uint256 tierPool = matchweek.prizePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
-        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 tierPool = matchweek.prizePerTier(8 - MarketConfig.MIN_WINNING_TIER);
+        uint256 tierTotalStake = matchweek.totalStakePerTier(8 - MarketConfig.MIN_WINNING_TIER);
         (, bytes32[] memory proofBob) = _buildTwoPredictionProofs(0, _columnsAt(8, 1), 1, _columnsAt(8, 1));
 
         uint256 expectedShare = tierPool * unitPrice / tierTotalStake;
@@ -740,7 +781,7 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(_merkleLeaf(predictionId, columns), totalStakePerTier_);
 
-        uint256 expectedShare = matchweek.prizePerTier(9 - PrizeConfig.MIN_WINNING_TIER);
+        uint256 expectedShare = matchweek.prizePerTier(9 - MarketConfig.MIN_WINNING_TIER);
         uint256 balanceBefore = stablecoin.balanceOf(ALICE);
 
         vm.prank(ALICE);
@@ -837,7 +878,7 @@ contract MatchweekTest is Test {
         _publishResults();
         bytes32 root = _merkleLeaf(predictionId, _columnsAt(8, 1));
         uint256[5] memory totalStakePerTier_;
-        totalStakePerTier_[8 - PrizeConfig.MIN_WINNING_TIER] = matchweek.UNIT_PRICE();
+        totalStakePerTier_[8 - MarketConfig.MIN_WINNING_TIER] = matchweek.UNIT_PRICE();
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, totalStakePerTier_);
 
@@ -949,7 +990,7 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        uint256 expectedCarry = cost - cost * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedCarry = cost - cost * MarketConfig.PROTOCOL_FEE_PCT / 100;
         assertEq(carryPool.carriedBalance(), expectedCarry);
         assertEq(stablecoin.balanceOf(address(carryPool)), expectedCarry);
         assertEq(stablecoin.balanceOf(address(matchweek)), 0);
@@ -972,7 +1013,7 @@ contract MatchweekTest is Test {
         vm.prank(BOB);
         uint256 predictionId = matchweek2.submitPrediction(_buildValidMasks());
 
-        uint256 fee = cost * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 fee = cost * MarketConfig.PROTOCOL_FEE_PCT / 100;
 
         // First matchweek: no winners, its only prediction's cost net of the fee seeds the carry pool.
         vm.prank(ALICE);
@@ -991,14 +1032,14 @@ contract MatchweekTest is Test {
         uint8 tier = 10;
         bytes32 root = _merkleLeaf(predictionId, _columnsAt(tier, 1));
         uint256[5] memory totalStakePerTier_;
-        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = cost;
+        totalStakePerTier_[tier - MarketConfig.MIN_WINNING_TIER] = cost;
 
         vm.prank(ADMIN);
         matchweek2.commitDistribution(root, totalStakePerTier_);
 
-        uint256 tier10Prize = cost * PrizeConfig.TIER10_PRIZE_PCT / 100;
+        uint256 tier10Prize = cost * MarketConfig.TIER10_PRIZE_PCT / 100;
         uint256 expectedPrizePerTier10 = tier10Prize + (cost - fee);
-        assertEq(matchweek2.prizePerTier(PrizeConfig.TIER_COUNT - 1), expectedPrizePerTier10);
+        assertEq(matchweek2.prizePerTier(MarketConfig.TIER_COUNT - 1), expectedPrizePerTier10);
 
         // matchweek2's own leftover, net of its fee, reseeds the carry pool for the next cycle.
         uint256 expectedUnallocated2 = cost - tier10Prize - fee;
@@ -1024,7 +1065,7 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        uint256 expectedFee = cost * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedFee = cost * MarketConfig.PROTOCOL_FEE_PCT / 100;
         assertEq(treasury.collectedBalance(), expectedFee);
         assertEq(treasury.collectedByMatchweek(MATCHWEEK_ID), expectedFee);
         assertEq(stablecoin.balanceOf(address(treasury)), expectedFee);
@@ -1041,7 +1082,7 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
-        uint256 expectedFee = cost * PrizeConfig.PROTOCOL_FEE_PCT / 100;
+        uint256 expectedFee = cost * MarketConfig.PROTOCOL_FEE_PCT / 100;
         assertEq(carryPool.carriedBalance(), cost - expectedFee);
         assertEq(matchweek.unallocated(), cost - expectedFee);
     }
@@ -1068,7 +1109,7 @@ contract MatchweekTest is Test {
 
         uint256 totalStakedExpected = 3 * cost;
         uint256 totalPrizes;
-        for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
+        for (uint256 i = 0; i < MarketConfig.TIER_COUNT; ++i) {
             totalPrizes += matchweek.prizePerTier(i);
         }
 
@@ -1087,7 +1128,7 @@ contract MatchweekTest is Test {
         matchweek.commitDistribution(bytes32(0), _emptyUint5());
 
         uint256 totalStakedExpected = matchweek.totalStaked();
-        assertLe(matchweek.protocolFee() * 100, totalStakedExpected * PrizeConfig.PROTOCOL_FEE_PCT);
+        assertLe(matchweek.protocolFee() * 100, totalStakedExpected * MarketConfig.PROTOCOL_FEE_PCT);
     }
 
     ////
@@ -1109,7 +1150,7 @@ contract MatchweekTest is Test {
         _publishResults();
         bytes32 root = _merkleLeaf(predictionId, _columnsAt(tier, matchweek.predictionColumns(predictionId)));
         uint256[5] memory totalStakePerTier_;
-        totalStakePerTier_[tier - PrizeConfig.MIN_WINNING_TIER] = matchweek.predictionCost(predictionId);
+        totalStakePerTier_[tier - MarketConfig.MIN_WINNING_TIER] = matchweek.predictionCost(predictionId);
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, totalStakePerTier_);
     }
@@ -1122,7 +1163,7 @@ contract MatchweekTest is Test {
 
     /// @dev Column vector holding `columns` in a single tier and zero everywhere else.
     function _columnsAt(uint8 tier, uint256 columns) internal pure returns (uint256[5] memory columnsPerTier) {
-        columnsPerTier[tier - PrizeConfig.MIN_WINNING_TIER] = columns;
+        columnsPerTier[tier - MarketConfig.MIN_WINNING_TIER] = columns;
     }
 
     /// @dev Commits a two-leaf distribution from both predictions' column vectors, setting each
@@ -1139,7 +1180,7 @@ contract MatchweekTest is Test {
             leafA <= leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
         uint256[5] memory totalStakePerTier_;
-        for (uint256 i = 0; i < PrizeConfig.TIER_COUNT; ++i) {
+        for (uint256 i = 0; i < MarketConfig.TIER_COUNT; ++i) {
             totalStakePerTier_[i] = (columnsA[i] + columnsB[i]) * matchweek.UNIT_PRICE();
         }
 
