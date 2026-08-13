@@ -12,11 +12,12 @@ pragma solidity ^0.8.24;
 ///      {TIER_COUNT}. `MarketConfig.t.sol` asserts those literals against these constants, so a
 ///      change here that the array types do not follow fails the test suite.
 library MarketConfig {
-    /// @notice One whole unit of the stablecoin predictions are paid in: 1 USDC (6 decimals).
-    /// @dev Every stablecoin amount the protocol hardcodes is denominated against this, here and
-    ///      in {DisputeConfig}. A token with different decimals means changing this constant
-    ///      alone, not hunting down each amount.
-    uint256 internal constant STABLECOIN_UNIT = 1e6;
+    /// @notice Decimals of the stablecoin predictions are paid in.
+    /// @dev Every stablecoin amount this library hardcodes is written as a multiple of
+    ///      `10 ** STABLECOIN_DECIMALS`, so a token with different decimals means changing this
+    ///      constant alone rather than each amount. {DisputeConfig} declares its own copy so
+    ///      neither library depends on the other; `MarketConfig.t.sol` asserts the two agree.
+    uint256 internal constant STABLECOIN_DECIMALS = 6;
 
     /// @notice Number of matches per matchweek.
     /// @dev The source of truth for the size of a matchweek: {MAX_WINNING_TIER} derives from it.
@@ -26,7 +27,7 @@ library MarketConfig {
     /// @dev A prediction pays this price per column it covers, so its cost scales with how many
     ///      outcome combinations it plays. Each winner's prize share is proportional to what its
     ///      winning columns cost (see {Matchweek.claimPrize}), not split evenly by winner count.
-    uint256 internal constant UNIT_PRICE = 2 * STABLECOIN_UNIT;
+    uint256 internal constant UNIT_PRICE = 2 * 10 ** STABLECOIN_DECIMALS;
 
     /// @notice Lowest number of correct predictions that earns a prize.
     uint8 internal constant MIN_WINNING_TIER = 6;

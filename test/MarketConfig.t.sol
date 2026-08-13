@@ -87,11 +87,29 @@ contract MarketConfigTest is Test {
     }
 
     /// @notice The hardcoded stablecoin amounts must stay the token figures their NatSpec claims.
-    /// @dev Both are written as multiples of {MarketConfig-STABLECOIN_UNIT}. This pins the token
-    ///      figures so a change to the unit — deploying against an 18-decimal stablecoin, say —
-    ///      is visibly a change to the unit alone and not to the prices themselves.
-    function test_stablecoinAmountsArePricedInWholeUnits() public pure {
-        assertEq(MarketConfig.UNIT_PRICE, 2 * MarketConfig.STABLECOIN_UNIT, "a column costs 2 tokens");
-        assertEq(DisputeConfig.DISPUTE_BOND, 50 * MarketConfig.STABLECOIN_UNIT, "a dispute bond is 50 tokens");
+    /// @dev Both are written as multiples of one whole token. This pins the token figures so a
+    ///      change to the decimals — deploying against an 18-decimal stablecoin, say — is visibly
+    ///      a change to the decimals alone and not to the prices themselves.
+    function test_stablecoinAmountsArePricedInWholeTokens() public pure {
+        assertEq(MarketConfig.UNIT_PRICE, 2 * 10 ** MarketConfig.STABLECOIN_DECIMALS, "a column costs 2 tokens");
+        assertEq(
+            DisputeConfig.DISPUTE_BOND, 50 * 10 ** DisputeConfig.STABLECOIN_DECIMALS, "a dispute bond is 50 tokens"
+        );
+    }
+
+    /// @notice The two libraries' stablecoin decimals must agree.
+    /// @dev {MarketConfig} and {DisputeConfig} each declare their own {STABLECOIN_DECIMALS} so that
+    ///      neither imports the other. The protocol runs on a single token — the deploy script
+    ///      resolves one address and hands it to {Disputes} and to {Matchweek} alike — so the two
+    ///      copies describe the same thing and cannot legitimately differ. Updating one alone would
+    ///      misprice {DisputeConfig-DISPUTE_BOND} by orders of magnitude: against an 18-decimal
+    ///      token, a bond left at 6 decimals costs a challenger essentially nothing, and disputes
+    ///      stop being bonded at all. This is the assertion that makes the duplication safe.
+    function test_bothLibrariesAgreeOnStablecoinDecimals() public pure {
+        assertEq(
+            MarketConfig.STABLECOIN_DECIMALS,
+            DisputeConfig.STABLECOIN_DECIMALS,
+            "both libraries describe the same stablecoin"
+        );
     }
 }
