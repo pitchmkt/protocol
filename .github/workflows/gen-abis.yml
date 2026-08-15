@@ -37,7 +37,7 @@ jobs:
           path: apps
 
       - name: Update Contracts package
-        run: cp /tmp/abis.ts apps/packages/contracts/src/abis.ts
+        run: cp /tmp/abis/*.ts apps/packages/contracts/src/abis/
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -55,8 +55,8 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: apps
 
-      - name: Lint generated ABI file
-        run: pnpm biome check --write packages/contracts/src/abis.ts
+      - name: Lint generated ABI files
+        run: pnpm biome check --write packages/contracts/src/abis
         working-directory: apps
 
       - name: Create Pull Request
