@@ -28,6 +28,7 @@ deploy-hyperevm-testnet: build
 		--rpc-url hyperevm_testnet \
 		--account $(account) \
 		--broadcast \
+		--slow \
 		-vvvv
 
 clean:
