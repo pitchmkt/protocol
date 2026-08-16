@@ -43,10 +43,11 @@ forge test -vvv --gas-report
  
 | Network | Contract | Address |
 |---|---|---|
-| HyperEVM Testnet | PitchMkt | [`0xc9f7cfa514605885d54fe9eebcd7041e73642be2`](https://testnet.hyperscan.com/address/0xc9f7cfa514605885d54fe9eebcd7041e73642be2) |
-| HyperEVM Testnet | CarryPool | [`0xd6647c25d1ee7d2b490d241fc4edc01ea734641b`](https://testnet.hyperscan.com/address/0xd6647c25d1ee7d2b490d241fc4edc01ea734641b) |
-| HyperEVM Testnet | Treasury | [`0x109c78851e527735527da36c72f4cfb1a916048a`](https://testnet.hyperscan.com/address/0x109c78851e527735527da36c72f4cfb1a916048a) |
-| HyperEVM Testnet | FaucetStablecoin (mUSDC) | [`0x96acd1d869bad950da299bad61b9112e8fa60c4d`](https://testnet.hyperscan.com/address/0x96acd1d869bad950da299bad61b9112e8fa60c4d) |
+| HyperEVM Testnet | PitchMkt | [`0xec06bb490764488b6d8a4c5d81674198016586a8`](https://testnet.hyperscan.com/address/0xec06bb490764488b6d8a4c5d81674198016586a8) |
+| HyperEVM Testnet | CarryPool | [`0xad4d2692d15f9cea0b4e5880668a5329c6fd79d9`](https://testnet.hyperscan.com/address/0xad4d2692d15f9cea0b4e5880668a5329c6fd79d9) |
+| HyperEVM Testnet | Treasury | [`0x8e60099712fd21206e2ea491d8bdf77dd3d7b03c`](https://testnet.hyperscan.com/address/0x8e60099712fd21206e2ea491d8bdf77dd3d7b03c) |
+| HyperEVM Testnet | Disputes | [`0xd69cff5ecca7f42ee8c53ba4750b44f4b5039d73`](https://testnet.hyperscan.com/address/0xd69cff5ecca7f42ee8c53ba4750b44f4b5039d73) |
+| HyperEVM Testnet | FaucetStablecoin (mUSDC) | [`0xe9cffc7b62549b8a1bcf564c625a44c82c449b0e`](https://testnet.hyperscan.com/address/0xe9cffc7b62549b8a1bcf564c625a44c82c449b0e) |
  
 ---
  
