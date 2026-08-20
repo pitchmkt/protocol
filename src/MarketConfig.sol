@@ -77,6 +77,9 @@ library MarketConfig {
     /// @notice Denominator used when computing prize shares from percentages.
     uint256 internal constant PCT_DENOMINATOR = 100;
 
+    /// @notice Window winners have to claim a prize before it can be swept to the carry pool.
+    uint40 internal constant CLAIM_WINDOW = 30 days;
+
     /// @notice The prize percentage of every tier, ordered from {MIN_WINNING_TIER} upwards.
     /// @dev Solidity has no constant arrays, so the per-tier percentages are declared one by one
     ///      above and assembled here. Keeping the assembly next to the declarations means a tier

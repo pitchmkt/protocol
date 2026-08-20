@@ -131,12 +131,16 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev Transferred to {TREASURY} at the end of {commitDistribution}.
     uint256 public protocolFee;
 
-    /// @notice Whether the admin has committed the distribution, unlocking {claimPrize}.
-    bool public distributionCommitted;
+    /// @notice Timestamp at which the admin committed the distribution, unlocking {claimPrize}.
+    /// @dev Zero means the distribution has not been committed yet.
+    uint40 public distributionCommittedAt;
 
     /// @notice Whether a prediction has been paid. One flag covers every tier it reached, since
     ///         {claimPrize} settles them together.
     mapping(uint256 predictionId => bool) public claimed;
+
+    /// @notice Whether unclaimed prize money has already been swept to {CARRY_POOL}.
+    bool public swept;
 
     /// @notice Emitted at construction to enable off-chain indexing by matchweekId.
     /// @param matchweekId   Unique identifier for this matchweek.
@@ -187,6 +191,12 @@ contract Matchweek is Ownable, ReentrancyGuard {
         uint256 amount,
         uint256[5] columnsPerTier
     );
+
+    /// @notice Emitted when unclaimed prize money is swept to {CARRY_POOL} after the claim window
+    ///         closes.
+    /// @param matchweekId Unique identifier for this matchweek.
+    /// @param amount      Amount of stablecoin swept, the clone's full remaining balance.
+    event UnclaimedSwept(uint32 indexed matchweekId, uint256 amount);
 
     /// @notice Emitted when a user submits a prediction.
     /// @param predictionId     Unique, sequential identifier for this prediction within the matchweek.
@@ -272,6 +282,15 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @dev    Indicates a bug in the admin's off-chain computation (winning tier with no winners).
     error EmptyTierPool(uint8 tier);
 
+    /// @notice Thrown if `claimPrize` is called after {MarketConfig.CLAIM_WINDOW} has closed.
+    error ClaimWindowClosed();
+
+    /// @notice Thrown if `sweepUnclaimed` is called before {MarketConfig.CLAIM_WINDOW} has closed.
+    error ClaimWindowNotClosed();
+
+    /// @notice Thrown if `sweepUnclaimed` is called more than once for this matchweek.
+    error AlreadySwept();
+
     modifier duringPredictionWindow() {
         _duringPredictionWindow();
         _;
@@ -309,6 +328,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     modifier whenDisputeSettled() {
         _whenDisputeSettled();
+        _;
+    }
+
+    modifier duringClaimWindow() {
+        _duringClaimWindow();
         _;
     }
 
@@ -467,7 +491,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         // dust left by integer division. Dust falls here rather than into the fee, so the protocol
         // never collects more than {MarketConfig.PROTOCOL_FEE_PCT}.
         unallocated = totalStaked - totalAllocated - fee;
-        distributionCommitted = true;
+        distributionCommittedAt = uint40(block.timestamp);
 
         if (totalStakePerTier_[MarketConfig.PERFECT_TIER_INDEX] > 0) {
             _addCarryPoolToPerfectTierPrize();
@@ -483,8 +507,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Claims every prize a prediction won, across all tiers, in a single call.
-    /// @dev Reverts if distribution has not been committed, the caller is not the prediction
-    ///      owner, the prediction has already been claimed, or the Merkle proof is invalid.
+    /// @dev Reverts if distribution has not been committed, the claim window has closed, the
+    ///      caller is not the prediction owner, the prediction has already been claimed, or the
+    ///      Merkle proof is invalid.
     ///      A prediction playing multiples reaches several tiers at once — one column may hit ten
     ///      while another hits nine — so the leaf carries the whole per-tier vector and the payout
     ///      sums what each tier owes it (see {_payoutFor}). The vector needs no validation of its
@@ -498,6 +523,7 @@ contract Matchweek is Ownable, ReentrancyGuard {
         external
         nonReentrant
         whenDistributionCommitted
+        duringClaimWindow
     {
         if (msg.sender != predictionOwner[predictionId]) revert NotPredictionOwner(predictionId);
         if (claimed[predictionId]) revert AlreadyClaimed(predictionId);
@@ -510,6 +536,23 @@ contract Matchweek is Ownable, ReentrancyGuard {
         claimed[predictionId] = true;
         STABLECOIN.safeTransfer(msg.sender, payout);
         emit PrizeClaimed(matchweekId, predictionId, msg.sender, payout, columnsPerTier);
+    }
+
+    /// @notice Sweeps whatever prize money went unclaimed to {CARRY_POOL}, once the claim window
+    ///         has closed.
+    function sweepUnclaimed() external nonReentrant whenDistributionCommitted {
+        if (block.timestamp < distributionCommittedAt + MarketConfig.CLAIM_WINDOW) revert ClaimWindowNotClosed();
+        if (swept) revert AlreadySwept();
+
+        swept = true;
+
+        uint256 amount = STABLECOIN.balanceOf(address(this));
+        emit UnclaimedSwept(matchweekId, amount);
+
+        if (amount > 0) {
+            STABLECOIN.safeTransfer(address(CARRY_POOL), amount);
+            CARRY_POOL.fund(matchweekId, amount);
+        }
     }
 
     /// @notice Returns all ten match outcomes published by the admin.
@@ -590,11 +633,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     function _whenDistributionNotCommitted() internal view {
-        if (distributionCommitted) revert DistributionAlreadyCommitted();
+        if (distributionCommittedAt != 0) revert DistributionAlreadyCommitted();
     }
 
     function _whenDistributionCommitted() internal view {
-        if (!distributionCommitted) revert DistributionNotCommitted();
+        if (distributionCommittedAt == 0) revert DistributionNotCommitted();
     }
 
     function _onlyDisputes() internal view {
@@ -603,6 +646,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     function _whenDisputeSettled() internal view {
         if (!DISPUTES.isSettled(address(this))) revert DisputeNotSettled();
+    }
+
+    function _duringClaimWindow() internal view {
+        if (block.timestamp >= distributionCommittedAt + MarketConfig.CLAIM_WINDOW) revert ClaimWindowClosed();
     }
 
     /// @dev Sums what every tier owes a prediction: each tier's pool times the share its winning
