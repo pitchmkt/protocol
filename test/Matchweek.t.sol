@@ -527,7 +527,7 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.commitDistribution(root, totalStakePerTier_);
 
-        assertEq(matchweek.distributionCommitted(), true);
+        assertEq(matchweek.distributionCommittedAt(), uint40(block.timestamp));
         assertEq(matchweek.claimsRoot(), root);
         assertEq(matchweek.prizePerTier(0), expectedPrize);
         assertEq(matchweek.unallocated(), expectedUnallocated);
@@ -1129,6 +1129,121 @@ contract MatchweekTest is Test {
 
         uint256 totalStakedExpected = matchweek.totalStaked();
         assertLe(matchweek.protocolFee() * 100, totalStakedExpected * MarketConfig.PROTOCOL_FEE_PCT);
+    }
+
+    ////
+    /// Sweep Unclaimed Tests
+    ////
+
+    // Alice is the only winner (tier 7) and never claims. The other four tiers have no winners,
+    // so their percentages already left for CarryPool as `unallocated` at commit time — what's
+    // left in the clone once the window closes is exactly `prizePerTier[7-6]`, and CarryPool.fund
+    // gets called a second time on top of that commit-time funding.
+    function test_sweepUnclaimed_transfersRemainingBalanceToCarryPool() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        uint256 unclaimedPrize = matchweek.prizePerTier(7 - MarketConfig.MIN_WINNING_TIER);
+        assertEq(stablecoin.balanceOf(address(matchweek)), unclaimedPrize, "clone holds only the unclaimed prize");
+
+        uint256 carryPoolBalanceBefore = carryPool.carriedBalance();
+
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW);
+        // Callable by anyone — a bystander with no stake in the matchweek, not the admin.
+        vm.prank(address(0xBEEF));
+        matchweek.sweepUnclaimed();
+
+        assertEq(stablecoin.balanceOf(address(matchweek)), 0);
+        assertEq(carryPool.carriedBalance(), carryPoolBalanceBefore + unclaimedPrize);
+        assertEq(matchweek.swept(), true);
+    }
+
+    function test_sweepUnclaimed_emitsEvent() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        uint256 unclaimedPrize = matchweek.prizePerTier(7 - MarketConfig.MIN_WINNING_TIER);
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW);
+
+        vm.expectEmit(true, false, false, true);
+        emit Matchweek.UnclaimedSwept(MATCHWEEK_ID, unclaimedPrize);
+        matchweek.sweepUnclaimed();
+    }
+
+    // A prize claimed before the window closes is not part of the sweep.
+    function test_sweepUnclaimed_excludesAlreadyClaimedPrizes() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, _columnsAt(7, 1), new bytes32[](0));
+        assertEq(stablecoin.balanceOf(address(matchweek)), 0);
+
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW);
+        uint256 carryPoolBalanceBefore = carryPool.carriedBalance();
+        matchweek.sweepUnclaimed();
+
+        assertEq(carryPool.carriedBalance(), carryPoolBalanceBefore);
+    }
+
+    function testRevert_sweepUnclaimed_beforeWindowCloses() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW - 1);
+        vm.expectRevert(Matchweek.ClaimWindowNotClosed.selector);
+        matchweek.sweepUnclaimed();
+    }
+
+    function testRevert_sweepUnclaimed_distributionNotCommitted() public {
+        vm.expectRevert(Matchweek.DistributionNotCommitted.selector);
+        matchweek.sweepUnclaimed();
+    }
+
+    function testRevert_sweepUnclaimed_alreadySwept() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW);
+        matchweek.sweepUnclaimed();
+
+        vm.expectRevert(Matchweek.AlreadySwept.selector);
+        matchweek.sweepUnclaimed();
+    }
+
+    function testRevert_claimPrize_afterClaimWindowClosed() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW);
+        vm.expectRevert(Matchweek.ClaimWindowClosed.selector);
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, _columnsAt(7, 1), new bytes32[](0));
+    }
+
+    function test_claimPrize_stillWorksJustBeforeWindowCloses() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishAndCommitSinglePrediction(predictionId, 7);
+
+        vm.warp(matchweek.distributionCommittedAt() + MarketConfig.CLAIM_WINDOW - 1);
+        vm.prank(ALICE);
+        matchweek.claimPrize(predictionId, _columnsAt(7, 1), new bytes32[](0));
+
+        assertEq(matchweek.claimed(predictionId), true);
     }
 
     ////
