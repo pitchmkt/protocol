@@ -441,6 +441,13 @@ contract MatchweekTest is Test {
         matchweek.publishResults(_buildValidOutcomes());
     }
 
+    function testRevert_publishResults_publishWindowClosed() public {
+        vm.warp(_predictionDeadline + MarketConfig.PUBLISH_TIMEOUT);
+        vm.expectRevert(Matchweek.PublishWindowClosed.selector);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidOutcomes());
+    }
+
     ////
     /// Apply Dispute Correction Tests
     ////
@@ -1277,6 +1284,33 @@ contract MatchweekTest is Test {
         matchweek.claimRefund(predictionId);
     }
 
+    function test_claimRefund_afterPublishTimeout_paysPredictionCost() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+        uint256 cost = matchweek.predictionCost(predictionId);
+        uint256 balanceBefore = stablecoin.balanceOf(ALICE);
+
+        _timeoutRefundWithoutPublish();
+
+        vm.expectEmit(true, true, true, true);
+        emit Matchweek.RefundClaimed(MATCHWEEK_ID, predictionId, ALICE, cost);
+        vm.prank(ALICE);
+        matchweek.claimRefund(predictionId);
+
+        assertEq(stablecoin.balanceOf(ALICE), balanceBefore + cost);
+        assertEq(matchweek.refundClaimed(predictionId), true);
+    }
+
+    function testRevert_claimRefund_beforePublishTimeout() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        vm.warp(_predictionDeadline + MarketConfig.PUBLISH_TIMEOUT - 1);
+        vm.expectRevert(Matchweek.MatchweekNotRefunded.selector);
+        vm.prank(ALICE);
+        matchweek.claimRefund(predictionId);
+    }
+
     function testRevert_claimRefund_notOwner() public {
         vm.prank(ALICE);
         uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
@@ -1342,6 +1376,13 @@ contract MatchweekTest is Test {
 
         vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT);
         disputes.refundAfterTimeout(address(matchweek));
+    }
+
+    /// @dev Warps past {MarketConfig.PUBLISH_TIMEOUT} since {_predictionDeadline} without the
+    ///      admin ever calling {Matchweek.publishResults}, leaving the matchweek refundable via
+    ///      the never-published branch of {Matchweek-_whenRefunded}.
+    function _timeoutRefundWithoutPublish() internal {
+        vm.warp(_predictionDeadline + MarketConfig.PUBLISH_TIMEOUT);
     }
 
     /// @dev Publishes results and commits a single-prediction distribution where every column of
