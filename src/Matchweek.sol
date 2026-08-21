@@ -142,6 +142,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Whether unclaimed prize money has already been swept to {CARRY_POOL}.
     bool public swept;
 
+    /// @notice Whether a prediction's stake has been refunded, after {DISPUTES} marked this
+    ///         matchweek refunded.
+    mapping(uint256 predictionId => bool) public refundClaimed;
+
     /// @notice Emitted at construction to enable off-chain indexing by matchweekId.
     /// @param matchweekId   Unique identifier for this matchweek.
     /// @param matchweek     Address of the deployed matchweek contract.
@@ -197,6 +201,16 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @param matchweekId Unique identifier for this matchweek.
     /// @param amount      Amount of stablecoin swept, the clone's full remaining balance.
     event UnclaimedSwept(uint32 indexed matchweekId, uint256 amount);
+
+    /// @notice Emitted when a prediction's stake is refunded after {DISPUTES} marked this
+    ///         matchweek refunded.
+    /// @param matchweekId Unique identifier for this matchweek.
+    /// @param predictionId The prediction refunded.
+    /// @param claimant    Address that received the refund.
+    /// @param amount      Amount of stablecoin refunded, the prediction's original cost.
+    event RefundClaimed(
+        uint32 indexed matchweekId, uint256 indexed predictionId, address indexed claimant, uint256 amount
+    );
 
     /// @notice Emitted when a user submits a prediction.
     /// @param predictionId     Unique, sequential identifier for this prediction within the matchweek.
@@ -291,6 +305,13 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if `sweepUnclaimed` is called more than once for this matchweek.
     error AlreadySwept();
 
+    /// @notice Thrown if `claimRefund` is called before {DISPUTES} has marked this matchweek
+    ///         refunded.
+    error MatchweekNotRefunded();
+
+    /// @notice Thrown if `claimRefund` is called for a prediction whose refund was already claimed.
+    error RefundAlreadyClaimed(uint256 predictionId);
+
     modifier duringPredictionWindow() {
         _duringPredictionWindow();
         _;
@@ -333,6 +354,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     modifier duringClaimWindow() {
         _duringClaimWindow();
+        _;
+    }
+
+    modifier whenRefunded() {
+        _whenRefunded();
         _;
     }
 
@@ -555,6 +581,24 @@ contract Matchweek is Ownable, ReentrancyGuard {
         }
     }
 
+    /// @notice Refunds a prediction's original stake, once {DISPUTES} has marked this matchweek
+    ///         refunded after the admin failed to resolve an open dispute in time.
+    /// @dev Reverts if {DISPUTES} has not marked this matchweek refunded, if the caller does not
+    ///      own `predictionId`, or if its refund was already claimed. Pull pattern, mirroring
+    ///      {claimPrize}: one-time claim per prediction.
+    /// @param predictionId Unique identifier of the prediction to refund.
+    function claimRefund(uint256 predictionId) external nonReentrant whenRefunded {
+        if (msg.sender != predictionOwner[predictionId]) revert NotPredictionOwner(predictionId);
+        if (refundClaimed[predictionId]) revert RefundAlreadyClaimed(predictionId);
+
+        uint256 amount = predictionCost(predictionId);
+        refundClaimed[predictionId] = true;
+
+        emit RefundClaimed(matchweekId, predictionId, msg.sender, amount);
+
+        STABLECOIN.safeTransfer(msg.sender, amount);
+    }
+
     /// @notice Returns all ten match outcomes published by the admin.
     /// @dev Returns an empty array before {publishResults} is called.
     /// @return The array of 10 outcome values (0=home, 1=draw, 2=away).
@@ -650,6 +694,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     function _duringClaimWindow() internal view {
         if (block.timestamp >= distributionCommittedAt + MarketConfig.CLAIM_WINDOW) revert ClaimWindowClosed();
+    }
+
+    function _whenRefunded() internal view {
+        if (!DISPUTES.refunded(address(this))) revert MatchweekNotRefunded();
     }
 
     /// @dev Sums what every tier owes a prediction: each tier's pool times the share its winning

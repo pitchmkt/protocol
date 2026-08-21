@@ -23,6 +23,7 @@ contract MatchweekTest is Test {
     address constant ADMIN = address(0xAD);
     address constant ALICE = address(0xA11CE);
     address constant BOB = address(0xB0B);
+    address constant CHALLENGER = address(0xC4A1);
 
     uint40 private _predictionDeadline;
     address private _implementation;
@@ -1247,6 +1248,72 @@ contract MatchweekTest is Test {
     }
 
     ////
+    /// claimRefund Tests
+    ////
+
+    function test_claimRefund_paysPredictionCost() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+        uint256 cost = matchweek.predictionCost(predictionId);
+        uint256 balanceBefore = stablecoin.balanceOf(ALICE);
+
+        _publishDisputeAndTimeoutRefund();
+
+        vm.expectEmit(true, true, true, true);
+        emit Matchweek.RefundClaimed(MATCHWEEK_ID, predictionId, ALICE, cost);
+        vm.prank(ALICE);
+        matchweek.claimRefund(predictionId);
+
+        assertEq(stablecoin.balanceOf(ALICE), balanceBefore + cost);
+        assertEq(matchweek.refundClaimed(predictionId), true);
+    }
+
+    function testRevert_claimRefund_notRefunded() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        vm.expectRevert(Matchweek.MatchweekNotRefunded.selector);
+        vm.prank(ALICE);
+        matchweek.claimRefund(predictionId);
+    }
+
+    function testRevert_claimRefund_notOwner() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishDisputeAndTimeoutRefund();
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.NotPredictionOwner.selector, predictionId));
+        vm.prank(BOB);
+        matchweek.claimRefund(predictionId);
+    }
+
+    function testRevert_claimRefund_alreadyClaimed() public {
+        vm.prank(ALICE);
+        uint256 predictionId = matchweek.submitPrediction(_buildValidMasks());
+
+        _publishDisputeAndTimeoutRefund();
+
+        vm.prank(ALICE);
+        matchweek.claimRefund(predictionId);
+
+        vm.expectRevert(abi.encodeWithSelector(Matchweek.RefundAlreadyClaimed.selector, predictionId));
+        vm.prank(ALICE);
+        matchweek.claimRefund(predictionId);
+    }
+
+    function testRevert_commitDistribution_afterTimeoutRefund() public {
+        vm.prank(ALICE);
+        matchweek.submitPrediction(_buildValidMasks());
+
+        _publishDisputeAndTimeoutRefund();
+
+        vm.expectRevert(Matchweek.DisputeNotSettled.selector);
+        vm.prank(ADMIN);
+        matchweek.commitDistribution(bytes32(0), _emptyUint5());
+    }
+
+    ////
     /// Test Helpers
     ////
 
@@ -1257,6 +1324,24 @@ contract MatchweekTest is Test {
         vm.prank(ADMIN);
         matchweek.publishResults(_buildValidOutcomes());
         vm.warp(block.timestamp + DisputeConfig.DISPUTE_WINDOW);
+    }
+
+    /// @dev Publishes results, has {CHALLENGER} dispute them within the window, then warps past
+    ///      {DisputeConfig.RESOLUTION_TIMEOUT} without the admin resolving and triggers the
+    ///      timeout refund, leaving the matchweek permanently refunded.
+    function _publishDisputeAndTimeoutRefund() internal {
+        vm.warp(_predictionDeadline);
+        vm.prank(ADMIN);
+        matchweek.publishResults(_buildValidOutcomes());
+
+        stablecoin.mint(CHALLENGER, DisputeConfig.DISPUTE_BOND);
+        vm.prank(CHALLENGER);
+        stablecoin.approve(address(disputes), DisputeConfig.DISPUTE_BOND);
+        vm.prank(CHALLENGER);
+        disputes.disputeResults(address(matchweek), keccak256("evidence"));
+
+        vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT);
+        disputes.refundAfterTimeout(address(matchweek));
     }
 
     /// @dev Publishes results and commits a single-prediction distribution where every column of
