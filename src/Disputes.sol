@@ -51,6 +51,12 @@ contract Disputes is Ownable, ReentrancyGuard {
     /// @notice The current (or most recent) dispute opened against a matchweek.
     mapping(address matchweek => Dispute) public disputes;
 
+    /// @notice Whether a matchweek's predictions were refunded after the admin failed to resolve
+    ///         an open dispute within {DisputeConfig.RESOLUTION_TIMEOUT}.
+    /// @dev Once set, permanent: folded into {isSettled} so {Matchweek.commitDistribution} can
+    ///      never unblock again, and read directly by {Matchweek.claimRefund} to gate refunds.
+    mapping(address matchweek => bool) public refunded;
+
     /// @notice Emitted when the owner sets the factory allowed to register matchweeks.
     /// @param factory Address of the PitchMkt.
     event FactorySet(address indexed factory);
@@ -84,6 +90,14 @@ contract Disputes is Ownable, ReentrancyGuard {
     /// @param bond       Stablecoin bond forfeited to the treasury.
     event DisputeRejected(address indexed matchweek, address indexed challenger, uint256 bond);
 
+    /// @notice Emitted when anyone triggers a refund after the admin failed to resolve a dispute
+    ///         within {DisputeConfig.RESOLUTION_TIMEOUT}.
+    /// @param matchweek  Address of the matchweek.
+    /// @param challenger Address that opened the dispute and receives its bond back.
+    /// @param bond       Stablecoin bond returned to the challenger — the timeout is the admin's
+    ///                   fault, not theirs.
+    event RefundedAfterTimeout(address indexed matchweek, address indexed challenger, uint256 bond);
+
     /// @notice Thrown if the constructor is given the zero address as the stablecoin.
     error InvalidStablecoin();
 
@@ -116,6 +130,10 @@ contract Disputes is Ownable, ReentrancyGuard {
     /// @notice Thrown if {confirmDispute} or {rejectDispute} is called for a dispute that has
     ///         already been resolved.
     error DisputeAlreadyResolved();
+
+    /// @notice Thrown if {refundAfterTimeout} is called before {DisputeConfig.RESOLUTION_TIMEOUT}
+    ///         has elapsed since the dispute was opened.
+    error ResolutionNotTimedOut();
 
     modifier onlyFactory() {
         _onlyFactory();
@@ -216,12 +234,36 @@ contract Disputes is Ownable, ReentrancyGuard {
         TREASURY.depositForfeitedBond(matchweekId, d.bond);
     }
 
+    /// @notice Refunds the challenger's bond after the admin fails to resolve an open dispute
+    ///         within {DisputeConfig.RESOLUTION_TIMEOUT}, and permanently marks the matchweek
+    ///         refunded so {Matchweek.commitDistribution} can never unblock and predictions become
+    ///         claimable via {Matchweek.claimRefund}.
+    /// @dev Callable by anyone — the timeout is the admin's fault, not the challenger's, so no
+    ///      permission is required to unstick the funds. Reverts if there is no active,
+    ///      unresolved dispute for `matchweek`, or if {DisputeConfig.RESOLUTION_TIMEOUT} has not
+    ///      yet elapsed since it was opened.
+    /// @param matchweek Address of the matchweek whose dispute timed out.
+    function refundAfterTimeout(address matchweek) external nonReentrant {
+        Dispute memory d = _activeDispute(matchweek);
+        if (block.timestamp < d.openedAt + DisputeConfig.RESOLUTION_TIMEOUT) revert ResolutionNotTimedOut();
+
+        disputes[matchweek].resolved = true;
+        refunded[matchweek] = true;
+
+        emit RefundedAfterTimeout(matchweek, d.challenger, d.bond);
+
+        STABLECOIN.safeTransfer(d.challenger, d.bond);
+    }
+
     /// @notice Returns whether a matchweek is clear to distribute prizes: its dispute window has
     ///         closed and it has no unresolved dispute.
-    /// @dev Returns false if the dispute window was never opened (results not published yet).
+    /// @dev Returns false if the dispute window was never opened (results not published yet), or
+    ///      permanently once {refundAfterTimeout} has marked the matchweek refunded.
     /// @param matchweek Address of the matchweek.
     /// @return True if the matchweek is settled.
     function isSettled(address matchweek) external view returns (bool) {
+        if (refunded[matchweek]) return false;
+
         uint40 deadline = disputeDeadline[matchweek];
         if (deadline == 0 || block.timestamp < deadline) return false;
 

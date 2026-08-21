@@ -224,6 +224,81 @@ contract DisputesTest is Test {
         assertEq(disputes.isSettled(MATCHWEEK_A), false);
     }
 
+    function test_isSettled_permanentlyFalseAfterTimeoutRefund() public {
+        vm.prank(MATCHWEEK_A);
+        disputes.openDisputeWindow();
+        vm.prank(CHALLENGER);
+        disputes.disputeResults(MATCHWEEK_A, bytes32(0));
+        vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT);
+        disputes.refundAfterTimeout(MATCHWEEK_A);
+
+        assertEq(disputes.isSettled(MATCHWEEK_A), false, "refunded matchweeks never settle");
+        vm.warp(block.timestamp + 365 days);
+        assertEq(disputes.isSettled(MATCHWEEK_A), false, "refunded matchweeks never settle, even much later");
+    }
+
+    ////
+    /// refundAfterTimeout Tests
+    ////
+
+    function test_refundAfterTimeout_refundsBondAndMarksRefunded() public {
+        vm.prank(MATCHWEEK_A);
+        disputes.openDisputeWindow();
+        vm.prank(CHALLENGER);
+        disputes.disputeResults(MATCHWEEK_A, bytes32(0));
+        vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT);
+
+        uint256 challengerBalanceBefore = stablecoin.balanceOf(CHALLENGER);
+
+        vm.expectEmit(true, true, false, true);
+        emit Disputes.RefundedAfterTimeout(MATCHWEEK_A, CHALLENGER, DisputeConfig.DISPUTE_BOND);
+        disputes.refundAfterTimeout(MATCHWEEK_A);
+
+        assertEq(disputes.refunded(MATCHWEEK_A), true);
+        assertEq(stablecoin.balanceOf(CHALLENGER), challengerBalanceBefore + DisputeConfig.DISPUTE_BOND);
+
+        (,,, bool resolved) = disputes.disputes(MATCHWEEK_A);
+        assertEq(resolved, true);
+    }
+
+    function testRevert_refundAfterTimeout_noActiveDispute() public {
+        vm.expectRevert(Disputes.NoActiveDispute.selector);
+        disputes.refundAfterTimeout(MATCHWEEK_A);
+    }
+
+    function testRevert_refundAfterTimeout_alreadyResolved() public {
+        vm.prank(MATCHWEEK_A);
+        disputes.openDisputeWindow();
+        vm.prank(CHALLENGER);
+        disputes.disputeResults(MATCHWEEK_A, bytes32(0));
+        vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT);
+        disputes.refundAfterTimeout(MATCHWEEK_A);
+
+        vm.expectRevert(Disputes.DisputeAlreadyResolved.selector);
+        disputes.refundAfterTimeout(MATCHWEEK_A);
+    }
+
+    function testRevert_refundAfterTimeout_notTimedOut() public {
+        vm.prank(MATCHWEEK_A);
+        disputes.openDisputeWindow();
+        vm.prank(CHALLENGER);
+        disputes.disputeResults(MATCHWEEK_A, bytes32(0));
+        vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT - 1);
+
+        vm.expectRevert(Disputes.ResolutionNotTimedOut.selector);
+        disputes.refundAfterTimeout(MATCHWEEK_A);
+    }
+
+    function testRevert_refundAfterTimeout_afterConfirmedDispute() public {
+        _publishAndDispute();
+        vm.prank(ADMIN);
+        disputes.confirmDispute(address(matchweek), _buildValidOutcomes());
+        vm.warp(block.timestamp + DisputeConfig.RESOLUTION_TIMEOUT);
+
+        vm.expectRevert(Disputes.DisputeAlreadyResolved.selector);
+        disputes.refundAfterTimeout(address(matchweek));
+    }
+
     ////
     /// confirmDispute Tests
     ////
