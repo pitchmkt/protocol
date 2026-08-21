@@ -269,6 +269,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if `publishResults` is called after results have already been published.
     error ResultsAlreadyPublished();
 
+    /// @notice Thrown if `publishResults` is called after {MarketConfig.PUBLISH_TIMEOUT} has
+    ///         elapsed since {predictionDeadline}.
+    error PublishWindowClosed();
+
     /// @notice Thrown if `commitDistribution` is called before results have been published.
     error ResultsNotPublished();
 
@@ -305,8 +309,9 @@ contract Matchweek is Ownable, ReentrancyGuard {
     /// @notice Thrown if `sweepUnclaimed` is called more than once for this matchweek.
     error AlreadySwept();
 
-    /// @notice Thrown if `claimRefund` is called before {DISPUTES} has marked this matchweek
-    ///         refunded.
+    /// @notice Thrown if `claimRefund` is called before this matchweek is refundable: neither has
+    ///         {DISPUTES} marked it refunded, nor has {MarketConfig.PUBLISH_TIMEOUT} elapsed since
+    ///         {predictionDeadline} without results being published.
     error MatchweekNotRefunded();
 
     /// @notice Thrown if `claimRefund` is called for a prediction whose refund was already claimed.
@@ -329,6 +334,11 @@ contract Matchweek is Ownable, ReentrancyGuard {
 
     modifier whenResultsPublished() {
         _whenResultsPublished();
+        _;
+    }
+
+    modifier beforePublishTimeout() {
+        _beforePublishTimeout();
         _;
     }
 
@@ -446,16 +456,20 @@ contract Matchweek is Ownable, ReentrancyGuard {
     }
 
     /// @notice Publishes the ten final match outcomes on-chain, opening the dispute window.
-    /// @dev Reverts if called before the prediction deadline, if outcomes have already been
+    /// @dev Reverts if called before the prediction deadline, after
+    ///      {MarketConfig.PUBLISH_TIMEOUT} has elapsed since it, if outcomes have already been
     ///      published, or if any outcome value is not 0, 1, or 2. Opens {DISPUTES}'s dispute
     ///      window for this matchweek; {commitDistribution} stays blocked until it reports this
-    ///      matchweek as settled.
+    ///      matchweek as settled. Blocking this once {MarketConfig.PUBLISH_TIMEOUT} elapses is
+    ///      what keeps {claimRefund}'s never-published condition permanent once it opens — see
+    ///      {_whenRefunded}.
     /// @param outcomes The ten final outcomes (0=home, 1=draw, 2=away).
     function publishResults(uint8[10] calldata outcomes)
         external
         onlyOwner
         afterPredictionDeadline
         whenResultsNotPublished
+        beforePublishTimeout
     {
         _validateOutcomes(outcomes);
 
@@ -581,11 +595,13 @@ contract Matchweek is Ownable, ReentrancyGuard {
         }
     }
 
-    /// @notice Refunds a prediction's original stake, once {DISPUTES} has marked this matchweek
-    ///         refunded after the admin failed to resolve an open dispute in time.
-    /// @dev Reverts if {DISPUTES} has not marked this matchweek refunded, if the caller does not
-    ///      own `predictionId`, or if its refund was already claimed. Pull pattern, mirroring
-    ///      {claimPrize}: one-time claim per prediction.
+    /// @notice Refunds a prediction's original stake, once this matchweek is refundable — either
+    ///         because {DISPUTES} marked it refunded after the admin failed to resolve an open
+    ///         dispute in time, or because the admin never published results within
+    ///         {MarketConfig.PUBLISH_TIMEOUT} of {predictionDeadline}.
+    /// @dev Reverts if this matchweek is not yet refundable (see {_whenRefunded}), if the caller
+    ///      does not own `predictionId`, or if its refund was already claimed. Pull pattern,
+    ///      mirroring {claimPrize}: one-time claim per prediction.
     /// @param predictionId Unique identifier of the prediction to refund.
     function claimRefund(uint256 predictionId) external nonReentrant whenRefunded {
         if (msg.sender != predictionOwner[predictionId]) revert NotPredictionOwner(predictionId);
@@ -676,6 +692,10 @@ contract Matchweek is Ownable, ReentrancyGuard {
         if (!resultsPublished) revert ResultsNotPublished();
     }
 
+    function _beforePublishTimeout() internal view {
+        if (block.timestamp >= predictionDeadline + MarketConfig.PUBLISH_TIMEOUT) revert PublishWindowClosed();
+    }
+
     function _whenDistributionNotCommitted() internal view {
         if (distributionCommittedAt != 0) revert DistributionAlreadyCommitted();
     }
@@ -696,8 +716,15 @@ contract Matchweek is Ownable, ReentrancyGuard {
         if (block.timestamp >= distributionCommittedAt + MarketConfig.CLAIM_WINDOW) revert ClaimWindowClosed();
     }
 
+    /// @dev A matchweek is refundable either because {DISPUTES} marked it refunded, or because
+    ///      results were never published and {MarketConfig.PUBLISH_TIMEOUT} has elapsed since
+    ///      {predictionDeadline}. The two conditions stay permanently mutually exclusive:
+    ///      {beforePublishTimeout} blocks `publishResults` once that same timeout passes, so
+    ///      `resultsPublished` can never flip true after this second condition opens.
     function _whenRefunded() internal view {
-        if (!DISPUTES.refunded(address(this))) revert MatchweekNotRefunded();
+        if (DISPUTES.refunded(address(this))) return;
+        if (!resultsPublished && block.timestamp >= predictionDeadline + MarketConfig.PUBLISH_TIMEOUT) return;
+        revert MatchweekNotRefunded();
     }
 
     /// @dev Sums what every tier owes a prediction: each tier's pool times the share its winning

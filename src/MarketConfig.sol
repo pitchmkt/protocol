@@ -80,6 +80,16 @@ library MarketConfig {
     /// @notice Window winners have to claim a prize before it can be swept to the carry pool.
     uint40 internal constant CLAIM_WINDOW = 30 days;
 
+    /// @notice Length of the window, starting at {Matchweek.predictionDeadline}, within which the
+    ///         admin must publish results. Once it elapses, {Matchweek.publishResults} is
+    ///         permanently blocked and predictions become refundable via {Matchweek.claimRefund}.
+    /// @dev Mirrors {DisputeConfig.RESOLUTION_TIMEOUT} for the sibling case where the admin never
+    ///      calls {Matchweek.publishResults} at all, rather than failing to resolve a dispute
+    ///      after publishing. Declared here rather than in {DisputeConfig} since {Matchweek}
+    ///      already imports this library and the check never involves {Disputes}.
+    ///      Placeholder MVP value — tune before mainnet launch.
+    uint40 internal constant PUBLISH_TIMEOUT = 7 days;
+
     /// @notice The prize percentage of every tier, ordered from {MIN_WINNING_TIER} upwards.
     /// @dev Solidity has no constant arrays, so the per-tier percentages are declared one by one
     ///      above and assembled here. Keeping the assembly next to the declarations means a tier
