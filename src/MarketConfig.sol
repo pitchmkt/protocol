@@ -87,8 +87,7 @@ library MarketConfig {
     ///      calls {Matchweek.publishResults} at all, rather than failing to resolve a dispute
     ///      after publishing. Declared here rather than in {DisputeConfig} since {Matchweek}
     ///      already imports this library and the check never involves {Disputes}.
-    ///      Placeholder MVP value — tune before mainnet launch.
-    uint40 internal constant PUBLISH_TIMEOUT = 7 days;
+    uint40 internal constant PUBLISH_TIMEOUT = 3 days;
 
     /// @notice The prize percentage of every tier, ordered from {MIN_WINNING_TIER} upwards.
     /// @dev Solidity has no constant arrays, so the per-tier percentages are declared one by one

@@ -20,11 +20,11 @@ library DisputeConfig {
 
     /// @notice Length of the window, starting at result publication, during which a matchweek's
     ///         results can be disputed.
-    uint40 internal constant DISPUTE_WINDOW = 48 hours;
+    uint40 internal constant DISPUTE_WINDOW = 12 hours;
 
     /// @notice Length of the window, starting when a dispute is opened, within which the admin
     ///         must resolve it before anyone can trigger a refund via {Disputes.refundAfterTimeout}.
-    uint40 internal constant RESOLUTION_TIMEOUT = 7 days;
+    uint40 internal constant RESOLUTION_TIMEOUT = 3 days;
 
     /// @notice Fixed stablecoin bond required to open a dispute: 50 USDC.
     /// @dev Placeholder MVP value — tune before mainnet launch. Written as a multiple of one whole
