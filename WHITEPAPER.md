@@ -131,7 +131,7 @@ This is why PitchMkt needs no scheme for hiding or committing picks in advance: 
 
 ## Transparency and dispute resolution
 
-The results of each matchday are published by a group of administrators who sign jointly, including a verifiable reference to the official source. During 48 hours any participant can challenge a result they believe is incorrect by posting a deposit as a good-faith guarantee. If the challenge is valid, they get their deposit back plus an additional reward. If it is invalid, the deposit goes to the protocol fund.
+The results of each matchday are published by a group of administrators who sign jointly, including a verifiable reference to the official source. During 12 hours any participant can challenge a result they believe is incorrect by posting a deposit as a good-faith guarantee. If the challenge is valid, they get their deposit back plus an additional reward. If it is invalid, the deposit goes to the protocol fund.
 
 If the administrators do not publish results within the established deadline, the protocol automatically refunds every participant with no human intervention required.
 
