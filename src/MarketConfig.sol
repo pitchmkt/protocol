@@ -66,13 +66,13 @@ library MarketConfig {
     uint256 internal constant TIER9_PRIZE_PCT = 15;
 
     /// @notice Prize percentage of the pool allocated to tier 10 (10/10 correct).
-    uint256 internal constant TIER10_PRIZE_PCT = 33;
+    uint256 internal constant TIER10_PRIZE_PCT = 31;
 
     /// @notice Percentage of the pool retained by the protocol as a fee.
     /// @dev The tier percentages and this fee are exhaustive:
     ///      `TIER6 + TIER7 + TIER8 + TIER9 + TIER10 + PROTOCOL_FEE_PCT == PCT_DENOMINATOR`.
     ///      Any change to one constant must preserve that invariant.
-    uint256 internal constant PROTOCOL_FEE_PCT = 3;
+    uint256 internal constant PROTOCOL_FEE_PCT = 5;
 
     /// @notice Denominator used when computing prize shares from percentages.
     uint256 internal constant PCT_DENOMINATOR = 100;

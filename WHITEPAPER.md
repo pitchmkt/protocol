@@ -70,7 +70,7 @@ No explicit limit is needed, because the shape of a prediction already imposes o
 
 The prize pool is divided into tiers based on the number of correct outcomes in a column:
 
-- Ten correct: 33% of the pool
+- Ten correct: 31% of the pool
 - Nine correct: 15% of the pool
 - Eight correct: 15% of the pool
 - Seven correct: 15% of the pool
@@ -139,7 +139,7 @@ If the administrators do not publish results within the established deadline, th
 
 ## Protocol fees
 
-The protocol applies a 3% fee on the matchday pool. Squads have no pool of their own — their prediction competes in the same one as everybody else's — so the fee is charged once and applies identically to individual and squad predictions. That fee goes entirely to the operational running of the platform and the future development of the protocol.
+The protocol applies a 5% fee on the matchday pool. Squads have no pool of their own — their prediction competes in the same one as everybody else's — so the fee is charged once and applies identically to individual and squad predictions. That fee goes entirely to the operational running of the platform and the future development of the protocol.
 
 It is the protocol's only cut: charged once, on the pool, with nothing further taken from prizes or from the carry pool — which, as described above, is funded exclusively by unawarded prize money.
 
